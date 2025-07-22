@@ -1,7 +1,7 @@
 #!/bin/sh
 
 VERSION="beta 2"
-BUILD="0722.3"
+BUILD="0722.4"
 PROFILE_PATH='/opt/etc/nfqws'
 BUTTON='/opt/etc/ndm/button.d/nk.sh'
 BACKUP='/opt/backup-nk'
@@ -674,7 +674,7 @@ function listLoad
 	{
 	echo -e "\tЗагрузка..."
 	wget -q -O /tmp/nk.list https://raw.githubusercontent.com/rino-soft-lab/nk/refs/heads/main/screenshots/l-1
-	local LIST=`cat /tmp/nk.list | awk -F"\t" '{print NR":\t"$1"\t"$2}'`
+	local LIST=`cat /tmp/nk.list | awk -F"sp@ce" '{print NR":\t"$1"\t"$2}'`
 	rm -rf /tmp/nk.list
 	echo ""
 	showText "\tВы можете выбрать один из вариантов (в списке ниже)..."
