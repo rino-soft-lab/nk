@@ -1,7 +1,7 @@
 #!/bin/sh
 
 VERSION="beta 2"
-BUILD="0722.1"
+BUILD="0722.2"
 PROFILE_PATH='/opt/etc/nfqws'
 BUTTON='/opt/etc/ndm/button.d/nk.sh'
 BACKUP='/opt/backup-nk'
@@ -2374,7 +2374,7 @@ function extraMenu
 		echo ""
 		read -r -p "Ваш выбор:"
 		echo ""
-		if [ "$REPLY" = "9" ];then
+		if [ "$REPLY" = "1" ];then
 			if [ -d $BACKUP ];then
 				echo "Удалить все резервные копии?"
 				echo ""
