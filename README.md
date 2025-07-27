@@ -1,4 +1,4 @@
-# NK для [NFQWS-Keenetic](https://github.com/Anonym-tsk/nfqws-keenetic)
+# ![Logo](screenshots/logo.png) NK для [NFQWS-Keenetic](https://github.com/Anonym-tsk/nfqws-keenetic)
 Надстройка, позволяющая упростить и сделать максимально дружелюбным процесс установки и эксплуатации [NFQWS-keenetic](https://github.com/Anonym-tsk/nfqws-keenetic)...
 
 ### Для тех, кто начинает с самого начала
