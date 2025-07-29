@@ -2,10 +2,10 @@
 
 VERSION="beta 2"
 BUILD="0729.1"
-PROFILE_PATH='/opt/etc/nfqws'
-BUTTON='/opt/etc/ndm/button.d/nk.sh'
-BACKUP='/opt/backup-nk'
-DNSCRYPT='/opt/etc/dnscrypt-proxy.toml'
+PROFILE_PATH="/opt/etc/nfqws"
+BUTTON="/opt/etc/ndm/button.d/nk.sh"
+BACKUP="/opt/backup-nk"
+DNSCRYPT="/opt/etc/dnscrypt-proxy.toml"
 OLD_LIST="ISP_INTERFACE
 IPV6_ENABLED
 POLICY_NAME
