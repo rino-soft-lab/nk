@@ -1,2761 +1,1915 @@
 #!/bin/sh
 
-VERSION="beta 2"
-BUILD="0729.1"
-PROFILE_PATH="/opt/etc/nfqws"
-BUTTON="/opt/etc/ndm/button.d/nk.sh"
-BACKUP="/opt/backup-nk"
-DNSCRYPT="/opt/etc/dnscrypt-proxy.toml"
-OLD_LIST="ISP_INTERFACE
-IPV6_ENABLED
-POLICY_NAME
-POLICY_EXCLUDE
-LOG_LEVEL"
-SAVE_LIST="NFQWS_ARGS=Стратегия обработки HTTP(S)
-NFQWS_ARGS_QUIC=Стратегия обработки QUIC
-NFQWS_ARGS_UDP=Стратегия обработки UDP
-TCP_PORTS=TCP порты для iptables
-UDP_PORTS=UDP порты для iptables"
-LISTS_LIST="auto.list=добавлено автоматически
-exclude.list=исключения
-user.list=добавлено пользователем"
-COLUNS="`stty -a | awk -F"; " '{print $3}' | grep "columns" | awk -F" " '{print $2}'`"
+SCRIPT_NAME="NK"
+SCRIPT_VERSION="2611.1"
+SCRIPT_YEAR="2024"
+SCRIPT_CONFIG_FILE="/opt/etc/`echo "$SCRIPT_NAME" | tr '[:upper:]' '[:lower:]'`.conf"
+SCRIPT_UPDATE_URL="https://raw.githubusercontent.com/rino-soft-lab/nk/refs/heads/main/nk.sh"
+SCRIPT_SETTINGS=""
+ACC_BG=$'\033[104m';ACC_CLR=$'\033[94m';DRK_CLR=$'\033[30m';ERR_BG=$'\033[101m';ERR_CLR=$'\033[91m';INAC_CLR=$'\033[90m';LGHT_CLR=$'\033[97m';OK_BG=$'\033[42m';OK_CLR=$'\033[92m';WARN_BG=$'\033[43m';WARN_CLR=$'\033[93m';RST_DFL=$'\033[0m'
+PACKAGE_NAME="NFQWS2-keenetic"
+PACKAGE_CONFIG_PATH="/opt/etc/nfqws2"
+PACKAGE_CONFIG_FILE="$PACKAGE_CONFIG_PATH/nfqws2.conf"
+PACKAGE_CONFIG_BACKUP="/tmp/backup_`basename -- "$PACKAGE_CONFIG_FILE"`"
+UPDATE_VERSIONS="/tmp/`echo "$SCRIPT_NAME" | tr '[:upper:]' '[:lower:]'`.upd"
 
-function sysConfigGet
-	{
-	local SYS_CONFIG=`ndmc -c 'show version'`
-	ARCH=`echo "$SYS_CONFIG" | grep "arch: " | sed -e 's/^[^[:alpha:]]\+//' | awk -F": " '{print $2}'`
-	if [ "$ARCH" = "mips" ];then
-		local HEXDUMP1=`echo -n I | hexdump -o | awk '{ print substr($2,6,1); exit}'`
-		local HEXDUMP2=`hexdump -s 5 -n 1 -C /opt/bin/busybox | awk -F" " '{print $2}'`
-		if [ "$HEXDUMP1" = "1" -a "$HEXDUMP2" = "01" ];then
-			ARCH=$ARCH'el'
-		fi
-	fi
-	}
-
-function checkForUpdate
-	{
-	local CURENT=`opkg list-installed | grep "^nfqws-keenetic " | awk -F" - " '{print $2}'`
-	local URL=`cat /opt/etc/opkg/nfqws-keenetic.conf | awk '{gsub(/^src\/gz nfqws-keenetic /,"")}1'`
-	local AVAILABLE="`wget -q -O - "$URL" | sed  's/<[^>]*>//g' | grep "^nfqws-keenetic_" | awk -F"_" '{print $2}'`"
-	if [ ! "$CURENT" = "$AVAILABLE" -a -n "$CURENT" -a -n "$AVAILABLE" ];then
-		echo "$AVAILABLE"
-	else
-		echo ""
-	fi
-	}
-
-function headLine	#1 - заголовок	#2 - скрыть полосу под заголовком	#3 - добавить пустые строки для прокрутки
-	{
-	if [ -n "$3" ];then
-		local COUNTER=24
-		while [ "$COUNTER" -gt "0" ];do
-			echo -e "\033[30m█\033[39m"
-			local COUNTER=`expr $COUNTER - 1`
-		done
-	fi
-	if [ "`expr $COLUNS / 2 \* 2`" -lt "$COLUNS" ];then
-		local WIDTH="`expr $COLUNS / 2 \* 2`"
-		local PREFIX=' '
-	else
-		local WIDTH=$COLUNS
-		local PREFIX=""
-	fi
-	if [ -n "$1" ];then
-		clear
-		local TEXT=$1
-		local LONG=`echo ${#TEXT}`
-		local SIZE=`expr $WIDTH - $LONG`
-		local SIZE=`expr $SIZE / 2`
-		local FRAME=`awk -v i=$SIZE 'BEGIN { OFS=" "; $i=" "; print }'`
-		if [ "`expr $LONG / 2 \* 2`" -lt "$LONG" ];then
-			local SUFIX=' '
+function space	#1-ориентация (h/v)	#2-размер	#3-заполняющий символ
+	{	# 2611.1
+	if [ "$1" = "v" ];then
+		if [ -n "$3" ];then
+			yes "$3" | head -n "$2"
 		else
-			local SUFIX=""
+			yes " " | head -n "$2"
 		fi
-		echo -e "\033[30m\033[47m$PREFIX$FRAME$TEXT$FRAME$SUFIX\033[39m\033[49m"
 	else
-		echo -e "\033[30m\033[47m`awk -v i=$COLUNS 'BEGIN { OFS=" "; $i=" "; print }'`\033[39m\033[49m"
+		if [ -n "$3" ];then
+			printf '%*s' "$2" "" | tr ' ' "$3"
+		else
+			printf '%*s' "$2" ""
+		fi
 	fi
-	if [ -n "$MODE" -a -n "$1" -a -z "$2" ];then
-		local LONG=`echo ${#MODE}`
-		local SIZE=`expr $COLUNS - $LONG - 1`
-		echo "`awk -v i=$SIZE 'BEGIN { OFS=" "; $i=" "; print }'`$MODE"
-	elif [ -z "$MODE" -a -n "$1" -a -z "$2" ];then
+	}
+
+function textBlock	#1-текст	#2-выравнивание	#3-граница	#4-отступ
+	{	# 2611.1
+	if [ -n "$COLUNS" ];then
+		local BOARDER="$3"
+		local INDENT="$4"
+		local WIDTH="$((COLUNS - BOARDER * 2 - INDENT * 2))"
+		local SIZE="${#1}"
+		if [ -n "$BOARDER" ];then
+			local INDENT="`space "h" "$BOARDER"`"
+		else
+			local INDENT=""
+		fi
+		if ! [ "$SIZE" -gt "$WIDTH" ];then
+			local SIZE="$((SIZE + BOARDER * 2))"
+			echo -e "$SIZE\n$INDENT$1$INDENT"
+		else
+			local ROWS="1"
+			while [ "$WIDTH" -lt "$(((SIZE + ROWS - 1) / ROWS))" ];do
+				local ROWS="$((ROWS + 1))"
+			done
+			local SIZE="$(((SIZE + ROWS - 1) / ROWS))"
+			local STRING=""
+			local SPACE=""
+			REPLY=""
+			IFS=$' '
+			for WORD in $1;do
+				local WORD_SIZE="${#WORD}"
+				local STRING_SIZE="${#STRING}"
+				if [ "$((STRING_SIZE + WORD_SIZE + 1))" -gt "$SIZE" ];then
+					if [ "$2" = "c" ];then
+						local STRING="$INDENT`space "h" "$(((SIZE - STRING_SIZE) / 2))"`$STRING`space "h" "$(((SIZE - STRING_SIZE + 1) / 2))"`$INDENT"
+					elif [ "$2" = "r" ];then
+						local STRING="$INDENT`space "h" "$((SIZE - STRING_SIZE))"`$STRING$INDENT"
+					else
+						local STRING="$INDENT$STRING`space "h" "$((SIZE - STRING_SIZE))"`$INDENT"
+					fi
+					REPLY="$REPLY\n$STRING"
+					local STRING="$WORD"
+				else
+					local STRING="$STRING$SPACE$WORD"
+					local SPACE=" "
+				fi
+			done
+			local STRING_SIZE="${#STRING}"
+			if [ "$2" = "c" ];then
+				local STRING="$INDENT`space "h" "$(((SIZE - STRING_SIZE) / 2))"`$STRING`space "h" "$(((SIZE - STRING_SIZE + 1) / 2))"`$INDENT"
+			elif [ "$2" = "r" ];then
+				local STRING="$INDENT`space "h" "$((SIZE - STRING_SIZE))"`$STRING$INDENT"
+			else
+				local STRING="$INDENT$STRING`space "h" "$((SIZE - STRING_SIZE))"`$INDENT"
+			fi
+			local SIZE="$((SIZE + BOARDER * 2))"
+			echo -e "$SIZE\n$REPLY\n$STRING" | grep -v '^$'
+		fi
+	fi
+	}
+
+function headLine	#1-заголовок	#2-полоса под заголовком (/скрыть)	#3-экран пустых строк (добавить/)	#4-индикация (включена/)	#5-состояние (/альтернативное)	#6-основной текст	#7-основной цвет	#8-альтернативный текст	#9-альтернативный цвет
+	{	# 2611.1
+	COLUNS="`stty -a | awk -F"; " '{print $3}' | grep "columns" | awk -F" " '{print $2}'`"
+	if [ -n "$3" ];then
+		local ROWS="`stty -a | awk -F"; " '{print $2}' | grep "rows" | awk -F" " '{print $2}'`"
+		echo "`space "v" "$ROWS" " "`"
+	elif [ -n "$1" ];then
+		clear
+	fi
+	if [ -n "$4" ];then
+		if [ -z "$5" ];then
+			local STATUS="$6"
+			local COLOR="$7"
+		else
+			local STATUS="$8"
+			local COLOR="$9"
+		fi
+		local TEXT="`textBlock "$1" "l" "1"`"
+		local TEXT_SIZE="`echo "$TEXT" | sed -n '1p;q'`"
+		local TEXT="`echo "$TEXT" | tail -n +2`"
+		local STATUS="`textBlock "$STATUS" "r" "1"`"
+		local STATUS_SIZE="`echo "$STATUS" | sed -n '1p;q'`"
+		local STATUS="`echo "$STATUS" | tail -n +2`"
+		local VARIABLE="$((COLUNS - TEXT_SIZE - STATUS_SIZE))"
+		if [ "$VARIABLE" -gt "0" ];then
+			echo -e "$TEXT" | awk -v BEGINING="$COLOR`space "h" "$(((COLUNS - TEXT_SIZE - STATUS_SIZE) / 2))"`" -v ENDING="`space "h" "$(((COLUNS - TEXT_SIZE - STATUS_SIZE + 1) / 2))"`$STATUS$RST_DFL" '{print BEGINING $0 ENDING}'
+		else
+			local VARIABLE="$((COLUNS - TEXT_SIZE))"
+			echo -e "$TEXT" | awk -v BEGINING="$COLOR`space "h" "$(((COLUNS - TEXT_SIZE) / 2))"`" -v ENDING="`space "h" "$(((COLUNS - TEXT_SIZE + 1) / 2))"`$RST_DFL" '{print BEGINING $0 ENDING}'
+			
+			local VARIABLE="$((COLUNS - STATUS_SIZE))"
+			echo -e "$STATUS" | awk -v BEGINING="$COLOR`space "h" "$VARIABLE"`" -v ENDING="$RST_DFL" '{print BEGINING $0 ENDING}'
+		fi
+	else
+		local TEXT="`textBlock "$1" "c"`"
+		local SIZE="`echo "$TEXT" | sed -n '1p;q'`"
+		local TEXT="`echo "$TEXT" | tail -n +2`"
+		echo -e "$TEXT" | awk -v BEGINING="$LGHT_CLR$ACC_BG`space "h" "$(((COLUNS - SIZE) / 2))"`" -v ENDING="`space "h" "$(((COLUNS - SIZE + 1) / 2))"`$RST_DFL" '{print BEGINING $0 ENDING}'
+	fi
+	if [ -n "$1" -a -z "$2" ];then
 		echo ""
 	fi
 	}
 
-function messageBox	#1 - текст	#2 - цвет
-	{
-	local TEXT=$1
-	local COLOR=$2
-	local LONG=`echo ${#TEXT}`
-	if [ ! "$LONG" -gt "`expr $COLUNS - 4`" ];then
-		local TEXT="│ $TEXT │"
-		local LONG=`echo ${#TEXT}`
-		local SIZE=`expr $COLUNS - $LONG`
-		local SIZE=`expr $SIZE / 2`
-		local SPACE=`awk -v i=$SIZE 'BEGIN { OFS=" "; $i=" "; print }'`
-		local LONG=`expr $LONG - 4`
-		local LEFT_UP='┌'
-		local RIGHT_UP='┐'
-		local LEFT_DOWN='└'
-		local RIGHT_DOWN='┘'
+function showMessage	#1-текст	#2-тип (e/o/w/)
+	{	# 2611.1
+	if [ "$2" = "e" ];then
+		local COLOR="$DRK_CLR$ERR_BG"
+	elif [ "$2" = "o" ];then
+		local COLOR="$DRK_CLR$OK_BG"
+	elif [ "$2" = "u" ];then
+		local COLOR="\033[96m"
+	elif [ "$2" = "w" ];then
+		local COLOR="$DRK_CLR$WARN_BG"
 	else
-		local LONG=`expr $COLUNS - 4`
-		local SPACE=""
-		local LEFT_UP='□'
-		local RIGHT_UP='□'
-		local LEFT_DOWN='□'
-		local RIGHT_DOWN='□'
+		local COLOR="$LGHT_CLR$ACC_BG"
 	fi
-	if [ "$COLUNS" = "80" ];then
-		echo -e "$COLOR$SPACE$LEFT_UP─`awk -v i=$LONG 'BEGIN { OFS="─"; $i="─"; print }'`─$RIGHT_UP\033[39m\033[49m"
-		echo -e "$COLOR$SPACE$TEXT\033[39m\033[49m"
-		echo -e "$COLOR$SPACE$LEFT_DOWN─`awk -v i=$LONG 'BEGIN { OFS="─"; $i="─"; print }'`─$RIGHT_DOWN\033[39m\033[49m"
-	else
-		echo -e "$COLOR$SPACE□-`awk -v i=$LONG 'BEGIN { OFS="-"; $i="-"; print }'`-□\033[39m\033[49m"
-		echo -e "$COLOR$SPACE$TEXT\033[39m\033[49m"
-		echo -e "$COLOR$SPACE□-`awk -v i=$LONG 'BEGIN { OFS="-"; $i="-"; print }'`-□\033[39m\033[49m"
-	fi
+	local TEXT="`textBlock "$1" "c" "2" "1"`"
+	local SIZE="`echo "$TEXT" | sed -n '1p;q'`"
+	local TEXT="`echo "$TEXT" | tail -n +2`"
+	echo -e "`space "h" "$SIZE"`\n$TEXT\n`space "h" "$SIZE"`" | awk -v BEGINING="`space "h" "$(((COLUNS - SIZE) / 2))"`$COLOR" -v ENDING="$RST_DFL`space "h" "$(((COLUNS - SIZE + 1) / 2))"`" '{print BEGINING $0 ENDING}'
 	}
 
-function showText	#1 - текст	#2 - цвет
-	{
-	local TEXT=`echo "$1" | awk '{gsub(/\\\t/,"____")}1'`
+function showCentered	#1-текст	#2-цвет
+	{	# 2611.1
+	local TEXT="`textBlock "$1" "c"`"
+	local SIZE="`echo "$TEXT" | sed -n '1p;q'`"
+	local TEXT="`echo "$TEXT" | tail -n +2`"
+	echo -e "$TEXT" | awk -v BEGINING="`space "h" "$(((COLUNS - SIZE) / 2))"`$2" -v ENDING="$RST_DFL`space "h" "$(((COLUNS - SIZE + 1) / 2))"`" '{print BEGINING $0 ENDING}'
+	}
+
+function showRighted	#1-текст	#2-цвет
+	{	# 2611.1
+	local TEXT="`textBlock "$1" "r" "1"`"
+	local SIZE="`echo "$TEXT" | sed -n '1p;q'`"
+	local TEXT="`echo "$TEXT" | tail -n +2`"
+	echo -e "$TEXT" | awk -v BEGINING="`space "h" "$((COLUNS - SIZE))"`$2" -v ENDING="$RST_DFL" '{print BEGINING $0 ENDING}'
+	}
+
+function showText	#1-текст	#2-цвет
+	{	# 2611.1
+	local TEXT=`echo "$1" | awk '{gsub(/^\\\t/,"____")}1'`
 	local TEXT=`echo -e "$TEXT"`
 	local STRING=""
 	local SPACE=""
 	IFS=$' '
 	for WORD in $TEXT;do
-			local WORD_LONG=`echo ${#WORD}`
-			local STRING_LONG=`echo ${#STRING}`
-			if [ "`expr $WORD_LONG + $STRING_LONG + 1`" -gt "$COLUNS" ];then
-				echo -e "$2$STRING\033[39m\033[49m" | awk '{gsub(/____/,"    ")}1'
-				local STRING=$WORD
+			local WORD_SIZE="${#WORD}"
+			local STRING_SIZE="${#STRING}"
+			if [ "$((WORD_SIZE + STRING_SIZE + 1))" -gt "$COLUNS" ];then
+				echo -e "$2$STRING$RST_DFL" | awk '{gsub(/^____/,"    ")}1'
+				local STRING="$WORD"
 			else
-				local STRING=$STRING$SPACE$WORD
+				local STRING="$STRING$SPACE$WORD"
 				local SPACE=" "
 			fi
 	done
-	echo -e "$2$STRING\033[39m\033[49m" | awk '{gsub(/____/,"    ")}1'
+	echo -e "$2$STRING$RST_DFL" | awk '{gsub(/____/,"    ")}1'
 	}
 
-function showCentered	#1 - текст	#2 - цвет
-	{
-	if [ "`expr $COLUNS / 2 \* 2`" -lt "$COLUNS" ];then
-		local WIDTH="`expr $COLUNS / 2 \* 2`"
-		local PREFIX=' '
+function halfColored	#1-обычный текст	№2-цветной текст	#3-цвет
+	{	# 2611.1
+	if [ -n "$3" ];then
+		local COLOR="$3"
 	else
-		local WIDTH=$COLUNS
-		local PREFIX=""
+		local COLOR="$ACC_CLR"
+	fi
+	printf "%s%s%s%s\n" "$1" "$COLOR" "$2" "$RST_DFL"
+	}
+
+function option	#1-индекс	#2-текст	#3-флаг (/блокировать)	#4-по умолчанию
+	{	# 2611.1
+	local COLOR="$ACC_CLR"
+	if [ -n "$3" ];then
+		local COLOR="$INAC_CLR"
+		local GRAY="$INAC_CLR"
+	fi
+	if [ -n "$4" ];then
+		local DEFAULT=" $ACC_CLRR(по умолчанию)"
+	fi
+	echo -e "\t$COLOR$1:$RST_DFL $GRAY$2$DEFAULT$RST_DFL"
+	}
+
+function optionList	#1-список
+	{	# 2611.1
+	echo "$1" | awk -v ACCENT="$ACC_CLR" -v ERROR="$ERR_CLR" -v RESTORE="$RST_DFL" -F"\t" '{printf "%s%s%s%s%s%s%s%s%s%s%s%s%s\n", "\t"ACCENT$1RESTORE$2ACCENT$3RESTORE$4ACCENT$5ERROR$6RESTORE}'
+	}
+
+function result	#1-текст	#2-по умолчанию
+	{	# 2611.1
+	if [ -n "$2" ];then
+		local DEFAULT=" $ACC_CLR(по умолчанию)"
 	fi
 	if [ -n "$1" ];then
-		local TEXT=$1
-		local LONG=`echo ${#TEXT}`
-		if [ "$LONG" -lt "$COLUNS" ];then
-			local SIZE=`expr $WIDTH - $LONG`
-			local SIZE=`expr $SIZE / 2`
-			if [ ! "$COLUNS" -lt "$LONG" ];then
-				local SPACE=`awk -v i=$SIZE 'BEGIN { OFS=" "; $i=" "; print }'`
-			else
-				local SPACE=""
-			fi
-			if [ "`expr $LONG / 2 \* 2`" -lt "$LONG" ];then
-				local SUFIX=' '
-			else
-				local SUFIX=""
-			fi
-			echo -e "$2$PREFIX$SPACE$TEXT\033[39m\033[49m"
-		else
-			local LONG="`expr $LONG / 2`"
-			local STRING=""
-			local SPACE=""
-			IFS=$' '
-			for WORD in $TEXT;do
-				local WORD_LONG=`echo ${#WORD}`
-				local STRING_LONG=`echo ${#STRING}`
-				if [ "`expr $WORD_LONG + $STRING_LONG + 1`" -gt "$LONG" ];then
-					local SIZE=`expr $COLUNS - $STRING_LONG`
-					local SIZE=`expr $SIZE / 2`
-					local INDENT=`awk -v i=$SIZE 'BEGIN { OFS=" "; $i=" "; print }'`
-					echo -e "$2$INDENT$STRING\033[39m\033[49m"
-					local STRING=$WORD
-					local END=""
-				else
-					local STRING=$STRING$SPACE$WORD
-					local SPACE=" "
-					local END="show"
-				fi
-			done
-			if [ -n "$END" ];then
-				local STRING_LONG=`echo ${#STRING}`
-				local SIZE=`expr $COLUNS - $STRING_LONG`
-				local SIZE=`expr $SIZE / 2`
-				local INDENT=`awk -v i=$SIZE 'BEGIN { OFS=" "; $i=" "; print }'`
-				echo -e "$2$INDENT$STRING\033[39m\033[49m"
-			fi
+		echo -e "$ACC_CLR\t0:$RST_DFL $1$DEFAULT$RST_DFL"
+	fi
+	echo ""
+	read -r -p "$ACC_CLRВаш выбор: $RST_DFL"
+	echo ""
+	}
+
+function prefill	#1-текст запроса	#2-заполнение	#3-выходная переменная
+	{	# 2611.1
+	local PROMPT="$1"
+	local VALUE="$2"
+	local OUTVAR="$3"
+	printf '%s%s%s%s' "$ACC_CLR" "$PROMPT" "$RST_DFL" "$VALUE"
+	local OLD
+	OLD=$(stty -g 2>/dev/null)
+	if [ "$?" -ne "0" ];then
+		return 1
+	fi
+	stty -icanon min 1 time 0 -echo
+	while true;do
+		local C
+		C=$(dd bs=1 count=1 2>/dev/null | tr -d '\n')
+		if [ -z "$C" ];then
+			break
 		fi
-	fi
+		local CODE
+		CODE=$(printf '%d' "'$C")
+		if [ "$CODE" -eq 27 ];then
+			stty min 1 time 2
+			local C2
+			C2=$(dd bs=1 count=1 2>/dev/null)
+			stty min 1 time 0
+			if [ -z "$C2" ];then
+				continue
+			fi
+			local C2_CODE
+			C2_CODE=$(printf '%d' "'$C2")
+			if [ "$C2_CODE" -ne 91 ];then
+				continue
+			fi
+			local C3
+			C3=$(dd bs=1 count=1 2>/dev/null)
+			local C3_CODE
+			C3_CODE=$(printf '%d' "'$C3")
+			case "$C3_CODE" in
+				68)	#Left
+					continue
+					;;
+				67)	#Right
+					continue
+					;;
+				72)	#Home
+					VALUE=""
+					printf '\r\033[K%s%s%s%s' "$ACC_CLR" "$PROMPT" "$RST_DFL" "$VALUE"
+					continue
+					;;
+				70)	#End
+					continue
+					;;
+				*)
+					continue
+					;;
+			esac
+		fi
+		if [ "$CODE" -ge 194 ] && [ "$CODE" -lt 224 ];then
+			local C2
+			C2=$(dd bs=1 count=1 2>/dev/null)
+			VALUE="${VALUE}${C}${C2}"
+			printf '\r\033[K%s%s\033[0m%s' "$PROMPT" "$VALUE"
+		elif [ "$CODE" -ge 224 ] && [ "$CODE" -lt 240 ];then
+			local C2 C3
+			C2=$(dd bs=1 count=1 2>/dev/null)
+			C3=$(dd bs=1 count=1 2>/dev/null)
+			VALUE="${VALUE}${C}${C2}${C3}"
+			printf '\r\033[K%s%s%s%s' "$ACC_CLR" "$PROMPT" "$RST_DFL" "$VALUE"
+		elif [ "$CODE" -ge 240 ] && [ "$CODE" -lt 248 ];then
+			local C2 C3 C4
+			C2=$(dd bs=1 count=1 2>/dev/null)
+			C3=$(dd bs=1 count=1 2>/dev/null)
+			C4=$(dd bs=1 count=1 2>/dev/null)
+			VALUE="${VALUE}${C}${C2}${C3}${C4}"
+			printf '\r\033[K%s%s%s%s' "$ACC_CLR" "$PROMPT" "$RST_DFL" "$VALUE"
+		else
+			case "$CODE" in
+				10|13)
+					break
+					;;
+				8|127)
+					if [ -n "$VALUE" ];then
+						local LAST
+						LAST=$(expr substr "$VALUE" "${#VALUE}" 1)
+						local VAL
+						VAL=$(printf '%d' "'$LAST")
+						while [ "$VAL" -ge 128 ] && [ "$VAL" -lt 192 ] && [ -n "$VALUE" ];do
+							VALUE="${VALUE%?}"
+							LAST=$(expr substr "$VALUE" "${#VALUE}" 1)
+							if [ -n "$LAST" ];then
+								VAL=$(printf '%d' "'$LAST")
+							else
+								break
+							fi
+						done
+						VALUE="${VALUE%?}"
+						printf '\r\033[K%s%s%s%s' "$ACC_CLR" "$PROMPT" "$RST_DFL" "$VALUE"
+					fi
+					;;
+				21)	#Ctrl+U
+					VALUE=""
+					printf '\r\033[K%s%s%s%s' "$ACC_CLR" "$PROMPT" "$RST_DFL" "$VALUE"
+					;;
+				*)
+					VALUE="${VALUE}${C}"
+					printf '\r\033[K%s%s%s%s' "$ACC_CLR" "$PROMPT" "$RST_DFL" "$VALUE"
+					;;
+			esac
+		fi
+	done
+	stty "$OLD" 2>/dev/null
+	printf '\n'
+	eval "$OUTVAR=\"$VALUE\""
 	}
 
-function copyRight	#1 - название	#2 - год
-	{
-	if [ "`date +"%C%y"`" -gt "$2" ];then
-		local YEAR="-`date +"%C%y"`"
-	fi
-	local COPYRIGHT="© $2$YEAR rino Software Lab."
-	local SIZE=`expr $COLUNS - ${#1} - ${#VERSION} - ${#COPYRIGHT} - 3`
-	read -t 1 -n 1 -r -p " $1 $VERSION`awk -v i=$SIZE 'BEGIN { OFS=" "; $i=" "; print }'`$COPYRIGHT" keypress
-	}
-
-function showOption	#1 - текст	#2 - флаг блокировки
-	{
-	if [ -n "$2" ];then
-		local COLOR="\033[90m"
-	fi
-	echo -e "$COLOR$1\033[39m"
-	}
-
-function backUp	#1 - не возвращаться в меню резервного копирования по завершению процесса
-	{
-	if [ -d $BACKUP/profile ];then
-		local STATE=""
+function multiEndong	#1-цифра	#2-слово
+	{	# 2611.1
+	local ONE="`echo "$1" | sed 's/.*\(.\)$/\1/'`"
+	local TWO="`echo "$1" | sed 's/.*\(..\)$/\1/'`"
+	if [ "$TWO" -gt "10" -a "$TWO" -lt "20" ];then
+	echo "$1 $2ов"
+elif [ "$ONE" = "1" ];then
+	echo "$1 $2"
+	elif [ "$ONE" = "2" -o "$ONE" = "3" -o "$ONE" = "4" ];then
+		echo "$1 $2а"
 	else
-		local STATE="block"
+		echo "$1 символов"
 	fi
-	headLine "Резервное копирование профиля"
-	echo "Что вы хотите сделать?"
-	echo ""
-	echo -e "\t1: Создать резервную копию профиля"
-	showOption "\t2: Восстановить файлы из резервной копии" "$STATE"
-	showOption "\t3: Удалить резервную копию" "$STATE"
-	echo -e "\t0: Отмена (по умолчанию)"
-	echo ""
-	read -r -p "Ваш выбор:"
-	echo ""
-	if [ "$REPLY" = "1" ];then
-		if [ -z "$STATE" ];then
-			showText "\tПри сохранении новой резервной копии, старая - будет полностью удалена..."
-			echo ""
-			echo "Создать новую резервную копию?"
-			echo ""
-			echo -e "\t1; Да (по умолчанию)"
-			echo -e "\t0; Нет"
-			echo ""
-			read -r -p "Ваш выбор:"
-			echo ""
-			if [ ! "$REPLY" = "0" ];then
-				rm -rf $BACKUP/profile
-				mkdir -p $BACKUP/profile
-				cp -r $PROFILE_PATH/*.* $BACKUP/profile
-				messageBox "Резервная копия - создана."
-				echo ""
-				read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-			fi
-		else
-			mkdir -p $BACKUP/profile
-			cp -r $PROFILE_PATH/*.* $BACKUP/profile
-			messageBox "Резервная копия - создана."
-			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-		fi
-		if [ -z "$1" ];then
-			backUp
-		fi
-	elif [ "$REPLY" = "2" ];then
-		if [ -z "$STATE" ];then
-			echo "Какие данные вы хотите восстановить?"
-			echo ""
-			echo -e "\t1: Профиль целиком (по умолчанию)"
-			echo -e "\t2: Только файл конфигурации"
-			echo -e "\t3: Только файлы списков"
-			echo ""
-			read -r -p "Ваш выбор:"
-			echo ""
-			if [ "$REPLY" = "2" ];then
-				cp -r $BACKUP/profile/nfqws.conf $PROFILE_PATH
-				messageBox "Файл конфигурации - восстановлен."
-			elif [ "$REPLY" = "3" ];then
-				cp -r $BACKUP/profile/*.list $PROFILE_PATH
-				messageBox "Файлы списков - восстановлены."
-			else
-				cp -r $BACKUP/profile/*.* $PROFILE_PATH
-				messageBox "Профиль - восстановлен."
-			fi
-			echo ""
-			restartDialogue
-		else
-			messageBox "Резервная копия отсутствует." "\033[91m"
-			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-		fi
-		if [ -z "$1" ];then
-			backUp
-		fi
-	elif [ "$REPLY" = "3" ];then
-		if [ -z "$STATE" ];then
-			rm -rf $BACKUP/profile
-			messageBox "Резервная копия - удалена."
-			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-		else
-			messageBox "Резервная копия отсутствует." "\033[91m"
-			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-		fi
-		if [ -z "$1" ];then
-			backUp
-		fi
-	fi
-	
 	}
 
-function fileSave	#1 - путь к файлу	#2 - сохраняемое содержимое
-	{
-	local FILE=`basename "$1"`
+function pressAnyKey
+	{	# 2611.1
+	read -n 1 -r -p "$ACC_CLR(Чтобы продолжить - нажмите любую клавишу...)$RST_DFL" keypress
+	echo ""
+	}
+
+function showContent	#1-файл/переменная	#2-заголовок
+	{	# 2611.1
+	headLine "$2" "hide" "space"
 	if [ -f "$1" ];then
-		if [ -n "$2" ];then
-			echo "Файл: $FILE - уже существует,"
+		cat "$1"
+	else
+		echo -e "$1"
+	fi
+	headLine
+	echo ""
+	pressAnyKey
+	}
+
+function directoryList	#1-папка
+	{	# 2611.1
+	if [ -d "$1" ];then
+		find "$1" -maxdepth 1 -type d ! -name "." | sed 's|.*/||' | tail -n +2 | sort | awk '{print $0"\t/"}'
+	fi
+	}
+
+function filesList	#1-папка	#2-фильтр (имя_файла.тип_файла)
+	{	# 2611.1
+	if [ -d "$1" ];then
+		find "$1" -maxdepth 1 -type f -name "$2" | sed 's|.*/||' | sort
+	fi
+	}
+
+function browse	#1-тип (d/f)	#2-содержимое /tmp (отображать/)	#3-имя файла/расширение файла	#4-описание	#5-альтернатива	#6-текущее значение	#7-выбранный путь
+	{	# 2611.1
+	if [ "$1" = "f" ];then
+		if [ -n "$3" ];then
+			local TYPE="*.$3"
 		else
-			echo "Файл: $FILE - перемещён в:"
+			local TYPE="*.*"
 		fi
-		local DATE_TTME=`date +"%C%y.%m.%d_%H-%M-%S"`
-		local BACKUP_PATH="$BACKUP/$DATE_TTME/"
-		mkdir -p "$BACKUP_PATH"
-		mv "$1" "$BACKUP_PATH$FILE"
-		if [ -f "$BACKUP_PATH$FILE" ];then
-			if [ -n "$2" ];then
-				echo "он перемещён в: $BACKUP_PATH"
-			else
-				echo "$BACKUP_PATH"
-			fi
+		local FILES="`filesList "$7" "$TYPE"`"
+	else
+		local FILES=""
+	fi
+	local LIST="`directoryList "$7"`"
+
+	if [ -n "$LIST" -a -n "$FILES" ];then
+		if [ "$1" = "d" ];then
+			local LIST="`echo -e "Готово\n$LIST\n$FILES"`"
 		else
-			echo ""
-			messageBox "Не удалось создать резервную копию." "\033[91m"
-			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-			exit
+			local LIST="`echo -e "$LIST\n$FILES"`"
+		fi
+	else
+		if [ "$1" = "d" ];then
+			local LIST="`echo -e "Готово\n$LIST$FILES"`"
+		else
+			local LIST="`echo -e "$LIST$FILES"`"
+		fi
+	fi
+	if [ -n "$LIST" ];then
+		local LIST="`echo "$LIST" | awk '{print NR":\t"$0}'`"
+		if [ "$1" = "d" -a -n "$3" ];then
+			echo -e "Текущий путь: $ACC_CLR$7$RST_DFL/$3"
+		else
+			halfColored "Текущий путь: " "$7"
 		fi
 		echo ""
+		optionList "`echo "$LIST" | awk -F"\t" '{print $1"\t "$2"\t"$3}'`"
+		result "Вернуться к началу" "d"
+		if [ "$1" = "d" -a "$REPLY" = "1" ];then
+			if [ -n "$3" ];then
+				REPLY="$7/$3"
+			else
+				REPLY="$7"
+			fi
+		else
+			REPLY=`echo "$LIST" | grep "^\$REPLY:"`
+			if [ -n "$REPLY" ];then
+				local SELECTED_PATH="`echo "$REPLY" | awk -F"\t" '{print $2}'`"
+				if [ -f "$7/$SELECTED_PATH" ];then
+					REPLY="$7/$SELECTED_PATH"
+				else
+					browse "$1" "$2" "$3" "" "$5" "$6" "$7/$SELECTED_PATH" "$2"
+				fi
+			else
+				browsePath "$1" "$2" "$3" "" "$5" "$6"
+			fi
+		fi
+	else
+		showMessage "В папке нет объектов для выбора." "e"
+		echo ""
+		browsePath "$1" "$2" "$3" "" "$5" "$6"
+	fi
+	}
+	
+function browsePath	#1-тип (d/f)	#2-содержимое /tmp (отображать/)	#3-имя файла/расширение файла	#4-описание	#5-альтернатива	#6-текущее значение
+	{	# 2611.1
+	local LIST="`mount | grep /tmp/mnt | awk '{print $3}' | awk -F"/" '{print $4}'`"
+	if [ -n "$LIST" ];then
+		local LIST="`echo "$LIST" | awk 'NR>1 {printf "|"} {printf "%s", $0}'`"
+		local LIST="`blkid | awk -F'"' '{print $2"\ttmp/mnt/"$4"\t/"}' | grep -a -E "$LIST" | sort`"
+		if [ -n "$LIST" ];then
+			local LIST="\n$LIST"
+		fi
 	fi
 	if [ -n "$2" ];then
-		echo -e "$2" > $1
-		messageBox "Файл: $FILE - сохранён."
+		local LIST="\nВременные файлы\ttmp\t/$LIST"
+	fi
+	if [ -n "$4" ];then
+		showText "\t$4"
 		echo ""
 	fi
-	}
-
-function listGet	#1 - файл списка
-	{
-	LIST=`cat $1 | awk '{sub(/^[[:space:]]*$/,"sp@ce")}1'`
-	LIST=`echo -e "$LIST"`
-	}
-
-function listConfluence	#1 - файл текущего списка	#2 - файл нового списка
-	{
-	local REMAINDER="`grep -Fxvf "$1" "$2"`"
-	if [ -n "$REMAINDER" ];then
-		listGet "$1"
-		LIST=`echo -e "$LIST" | awk '{sub(/^sp@ce/,"")}1'`
-		LIST=`echo -e "$LIST\n\n$REMAINDER"`
-		if [ -n "`echo "$2" | grep "$1"`" -a -z "`echo "$1" | grep "$2"`" ];then
-			fileSave "$1" "$LIST"
-			fileSave "$2" ""
-		else
-			fileSave "$2" "$LIST"
-			fileSave "$1" ""
-		fi
-	else
-		if [ -n "`echo "$2" | grep "$1"`" -a -z "`echo "$1" | grep "$2"`" ];then
-			fileSave "$2" ""
-		else
-			fileSave "$1" ""
-		fi
-	fi
-	}
-
-function configGet	#1 - файл конфигурации
-	{
-	CONFIG=`cat "$1" | awk '{sub(/^[[:space:]]*$/,"sp@ce")}1'`
-	CONFIG=`echo -e "$CONFIG"`
-	}
-
-function configOptimize	#1 - файл текущей конфигурации	#2 - файл новой конфигурации
-	{
-	headLine "Оптимизация конфигурации"
-	echo -e "\tПодождите..."
-	configGet "$PROFILE_PATH/nfqws.conf"
-	CURENT_CONFIG=`echo -e "$CONFIG"`
-	configsConfluence "$1" "$2"
-	headLine "Оптимизация конфигурации"
-	messageBox "Оптимизированная конфигурация - сформирована."
-	echo ""
-	showText "\tТеперь можно её протестировать и убедиться что всё работает правильно..."
-	echo ""
-	echo -e "\t1: Начать тестирование"
-	echo -e "\t0: Отмена (по умолчанию)"
-	echo ""
-	read -r -p "Ваш выбор:"
-	echo ""
-	if [ "$REPLY" = "1" ];then
-		configTest "$1" "$2"
-	fi
-	}
-
-function configTest	#1 - файл текущей конфигурации	#2 - файл новой конфигурации
-	{
-	local TEST_CONFIG=`echo -e "$CONFIG" | awk '{sub(/^sp@ce/,"")}1'`
-	fileSave "$PROFILE_PATH/nfqws.conf" "$TEST_CONFIG"
-	restartNFQWS "compact"
-	headLine "Тестирование конфигурации" "hide" "space"
-	echo "$TEST_CONFIG"
-	headLine
-	if [ -n "`echo -e "$CONFIG" | grep "#OLD#\|#NEW#"`" ];then
-		local STATE=""
-	else
-		local STATE="block"
-	fi
-	echo ""
-	messageBox "Тестовая конфигурация - загружена в NFQWS."
-	echo ""
-	showText "\tТеперь вы можете проверить - как с этой конфигурацией работают сайты/сервисы/приложения (для работы которых - необходим NFQWS)..."
-	echo ""
-	echo -e "\t1: Сохранить конфигурацию"
-	echo -e "\t2: Отложить решение"
-	showOption "\t3: Изменить" "$STATE"
-	echo -e "\t0: Отмена (по умолчанию)"
-	echo ""
-	read -r -p "Ваш выбор:"
-	echo ""
-	if [ "$REPLY" = "1" ];then
-		if [ -z "$STATE" ];then
-			echo "Сохранить неиспользованные значения?"
-			echo ""
-			echo -e "\t1; Да"
-			echo -e "\t0; Нет (по умолчанию)"
-			echo ""
-			read -r -p "Ваш выбор:"
-			echo ""
-			if [ "$REPLY" = "1" ];then
-				local REMAINDER=`echo -e "$CONFIG" | grep "#OLD#\|#NEW#" | awk '{sub(/#OLD#|#NEW#/,"#")}1' | awk '{sub(/=/,"=#")}1'`
-				CONFIG=$CONFIG'\n\n# Optimization BackUp ['`date +"%C%y.%m.%d %H:%M:%S"`']\n'$REMAINDER
-			fi
-		fi
-		CONFIG=`echo -e "$CONFIG" | grep -v "#OLD#\|#NEW#" | awk '{sub(/^sp@ce/,"")}1'`
-		fileSave "$PROFILE_PATH/nfqws.conf" "$CONFIG"
-		if [ ! "$1" = "$PROFILE_PATH/nfqws.conf" -a -n "$1" ];then
-			fileSave "$1" ""
-		elif [ ! "$2" = "$PROFILE_PATH/nfqws.conf" -a -n "$2" ];then
-			fileSave "$2" ""
-		fi
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-	elif [ "$REPLY" = "2" ];then
-		fileSave "$PROFILE_PATH/nfqws.conf" "$CONFIG"
-		if [ ! "$1" = "$PROFILE_PATH/nfqws.conf" -a -n "$1" ];then
-			fileSave "$1" ""
-		elif [ ! "$2" = "$PROFILE_PATH/nfqws.conf" -a -n "$2" ];then
-			fileSave "$2" ""
-		fi
-		showText "\tВы сможете вернуться к тестированию - выбрав пункт \"Оптимизация профиля\" в главном меню..."
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-	elif [ "$REPLY" = "3" ];then
-		if [ -z "$STATE" ];then
-			configSwitch "$1" "$2"
-		else
-			messageBox "Изменяемые параметры - отсутствуют." "\033[91m"
-			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-			modeSwitch
-		fi
-	else
-		CURENT_CONFIG=`echo -e "$CURENT_CONFIG" | awk '{sub(/^sp@ce/,"")}1'`
-		fileSave "$PROFILE_PATH/nfqws.conf" "$CURENT_CONFIG"
-		restartNFQWS "compact"
-	fi
-	}
-
-function configSwitch	#1 - файл текущей конфигурации	#2 - файл новой конфигурации
-	{
-	headLine "Изменение конфигурации"
-	showText "\tВы можете ввести один (или несколько, через пробел) идентификатор(ов) настроек - которые хотите переключить..."
-	echo ""
-	local LIST=`echo -e "$CONFIG" | grep "#OLD#\|#NEW#" | awk -F"=" '{print NR$1}'`
-	IFS=$'\n'
-	for LINE in $LIST;do
-		local STRING=`echo "$LINE" | awk -F"#" '{print $1": Параметр: "$3}'`
-		if [ "`echo "$LINE" | awk -F"#" '{print $2}'`" = "NEW" ];then
-			local STATE1="block"
-			local STATE2=""
-		else
-			local STATE1=""
-			local STATE2="block"
-		fi
-		echo -e "\t$STRING"
-		local PARAM=`echo "$LINE" | awk -F"#" '{print $3}'`
-		echo -e "\t(`echo "$SAVE_LIST" | grep "^$PARAM=" | awk -F"=" '{print $2}'`)"
-		echo -e "\tЗначение: `showOption "новое" "$STATE1"`/`showOption "станое" "$STATE2"`"
-		echo ""
-	done
-	read -r -p "Введите один (или несколько, через пробел) идентификатор(ов):"
-	echo ""
+	local LIST="`echo -e "Системный раздел\topt\t/$LIST" | awk '{print NR":\t"$0}'`"
+	optionList "`echo "$LIST" | awk -F"\t" '{print $1"\t "$2"\t"$4}'`"
+	result "$5" "d"
+	REPLY=`echo "$LIST" | grep -a "^\$REPLY:"`
 	if [ -n "$REPLY" ];then
-		IFS=$' '
-		for ITEM in $REPLY;do
-			local FLAG="`echo "$LIST" | grep "^$ITEM#" | awk -F"#" '{print $2}'`"
-			local PARAM="`echo "$LIST" | grep "^$ITEM#" | awk -F"#" '{print $3}'`"
-			if [ -n "$FLAG" -a "$FLAG" = "NEW" ];then
-				CONFIG="`echo "$CONFIG" | sed -e "s/^$PARAM=/#OLD#$PARAM=/g"`"
-				CONFIG="`echo "$CONFIG" | sed -e "s/^#NEW#$PARAM=/$PARAM=/g"`"
-			elif [ -n "$FLAG" -a "$FLAG" = "OLD" ];then
-				CONFIG="`echo "$CONFIG" | sed -e "s/^$PARAM=/#NEW#$PARAM=/g"`"
-				CONFIG="`echo "$CONFIG" | sed -e "s/^#OLD#$PARAM=/$PARAM=/g"`"
-			fi
-		done
-	fi
-	configTest "$1" "$2"
-	}
-
-function configsConfluence	#1 - файл текущей конфигурации	#2 - файл новой конфигурации
-	{
-	configGet "$1"
-	local CURENT_CONFIG=`echo -e "$CONFIG"`
-	configGet "$2"
-	local NEW_CONFIG=`echo -e "$CONFIG"`
-	local BACK_UP="`echo "$CURENT_CONFIG" | grep -i -A 2 "BackUp"`"
-	local EXTRA_ARGS="`echo "$CURENT_CONFIG" | grep -i -B 1 "^NFQWS_EXTRA_ARGS="`"
-	local CURENT_CONFIG="`echo "$CURENT_CONFIG" | grep -v "^#\|NFQWS_EXTRA_ARGS=\|sp@ce"`"
-	IFS=$'\n'
-	for LINE in $CURENT_CONFIG;do
-		if [ ! "`echo "$NEW_CONFIG" | grep "$LINE"`" = "$LINE" ];then
-			local PARAM="`echo "$LINE" | awk -F"=" '{print $1}'`"
-			local VALUE="`echo "$LINE" | sed -e "s/^$PARAM="/"/g" | awk '{gsub(/"/,"")}1'`"
-			if [ "`echo "$OLD_LIST" | awk -F"=" '{print $1}' | grep "^$PARAM$"`=" = "$PARAM=" ];then
-				local REPLACE="`echo "$NEW_CONFIG" | grep "^$PARAM="`"
-				local REPLACE=$(echo "$REPLACE" | sed 's:/:\\/:g')
-				local LINE=$(echo "$LINE" | sed 's:/:\\/:g')
-				NEW_CONFIG=`echo "$NEW_CONFIG" | sed -e "s/^$REPLACE$/$LINE/g"`
-			fi
-			if [ "`echo "$SAVE_LIST" | awk -F"=" '{print $1}' | grep "^$PARAM$"`=" = "$PARAM=" ];then
-				local REPLACE="`echo "$NEW_CONFIG" | grep "^$PARAM="`"
-				local REPLACE=$(echo "$REPLACE" | sed 's:/:\\/:g')
-				local LINE=$(echo "$LINE" | sed 's:/:\\/:g')
-				NEW_CONFIG=`echo "$NEW_CONFIG" | sed -e "s/^$REPLACE$/$REPLACE\n#OLD#$LINE/g"`
-			fi
-		fi
-	done
-	if [ -n "`echo "$EXTRA_ARGS" | grep "^# auto.*auto.list$"`" ];then
-		local EXTRA_ARGS="`echo "$NEW_CONFIG" | grep -i -A 1 "^# auto.*auto.list$" | tail -1`"
-	elif [ -n "`echo "$EXTRA_ARGS" | grep "^# list.*user.list$"`" ];then
-		local EXTRA_ARGS="`echo "$NEW_CONFIG" | grep -i -A 1 "^# list.*user.list$" | tail -1`"
+		local SELECTED_PATH=`echo "$REPLY" | awk -F"\t" '{print "/"$3}'`
+		browse "$1" "$2" "$3" "" "$5" "$6" "$SELECTED_PATH" "$2"
 	else
-		local EXTRA_ARGS="`echo "$NEW_CONFIG" | grep -i -A 1 "^# all.*exclude.list$" | tail -1`"
-	fi
-	local EXTRA_ARGS="`echo "$EXTRA_ARGS" | awk '{gsub(/#/,"")}1'`"
-	local EXTRA_ARGS=$(echo "$EXTRA_ARGS" | sed 's:/:\\/:g')
-	CONFIG="`echo "$NEW_CONFIG" | awk '{gsub(/^NFQWS_EXTRA_ARGS=/,"#NFQWS_EXTRA_ARGS=")}1' | sed -e "s/#$EXTRA_ARGS/$EXTRA_ARGS/g"`"
-	if [ -n "$BACK_UP" ];then
-		CONFIG=$CONFIG'\nsp@ce\n'$BACK_UP
+		REPLY="$6"
 	fi
 	}
 
-function listsAndProfileOptimize
-	{
-	headLine "Оптимизация списков"
-	if [ "`ls "$PROFILE_PATH" | grep -c "\-old"`" -gt "0" -o "`ls "$PROFILE_PATH" | grep -c "\-opkg"`" -gt "0" ];then
-		echo -e "\tПодождите..."
-		local LISTS=`ls $PROFILE_PATH | grep ".list$" | awk '{gsub(/.list /,".list\n")}1'`
-		local LISTS=`echo -e "$LISTS"`
-		IFS=$'\n'
-		for LINE in $LISTS;do
-			if [ -f "$PROFILE_PATH/$LINE-old" ];then
-				listConfluence "$PROFILE_PATH/$LINE-old" "$PROFILE_PATH/$LINE"
-			fi
-			if [ -f "$PROFILE_PATH/$LINE-opkg" ];then
-				listConfluence "$PROFILE_PATH/$LINE" "$PROFILE_PATH/$LINE-opkg"
-			fi
-		done
-		if [ -f "$PROFILE_PATH/nfqws.conf-old" ];then
-			configOptimize "$PROFILE_PATH/nfqws.conf-old" "$PROFILE_PATH/nfqws.conf"
-		fi
-		if [ -f "$PROFILE_PATH/nfqws.conf-opkg" ];then
-			configOptimize "$PROFILE_PATH/nfqws.conf" "$PROFILE_PATH/nfqws.conf-opkg"
-		fi
-	else
-		messageBox "Объектов для оптимизации - не обнаружено." "\033[91m"
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-	fi
-	}
-
-function profileOptimize
-	{
-	if [ -n "`cat "$PROFILE_PATH/nfqws.conf" | grep "#OLD#\|#NEW#"`" ];then
-		configGet "$PROFILE_PATH/nfqws.conf"
-		configTest
-	else
-		headLine "Оптимизация профиля"
-		showText "\tВ процессе обновления NFQWS-Keenetic, в профиле накапливаются разные версии файла настроек и файлов списков (в том числе и пустые)... Данный инструмент, позволит вам упорядочить их содержимое и избавиться от всего лишнего."
-		echo ""
-		showText "\tПеред тем как начать процесс - настоятельно рекомендуется воспользоваться инструментом создания резервной копии профиля, чтобы (в случае возникновения проблем) - иметь возможность быстро вернуться к предыдущему состоянию..."
-		echo ""
-		echo "Создать резервную копию профиля?"
-		echo ""
-		echo -e "\t1: Да"
-		echo -e "\t2: Нет (начать оптимизацию)"
-		echo -e "\t0: Отмена (по умолчанию)"
-		echo ""
-		read -r -p "Ваш выбор:"
-		echo ""
-		if [ "$REPLY" = "1" ];then
-			backUp "no return"
-			listsAndProfileOptimize
-		elif [ "$REPLY" = "2" ];then
-			listsAndProfileOptimize
-		fi
-	fi
-	}
-
-function segListGet
-	{
-	local IP_ADDR_SHOW=`ip addr show | awk -F" |/" '{gsub(/^ +/,"")}/inet /{print $(NF)"\t"$2}' | grep -v "^lo\|^ezcfg\|^br"`
-	local SHOW_INTERFACE=`ndmc -c show interface | grep "address: \|description: "`
+function selectInterface	#1-тип (a/i)	#2-IP-адреса в списке	#3-фильтр	#4-разделитель	#5-описание	#6-альтернатива	#7-текущее значение
+	{	# 2611.1
+	local IP_ADDR_SHOW=`ip addr show | awk -F" |/" '{gsub(/^ +/,"")}/inet /{print $(NF)"\t"$2}' | grep -v "^lo\|^ezcfg"`
+	local SHOW_INTERFACE=`ndmc -c show interface | grep "^address: \|^description: \| address: \| description: "`
 	IFS=$'\n'
 	for LINE in $IP_ADDR_SHOW;do
 		local IP="`echo "$LINE" | awk -F"\t" '{print $2}'`"
 		local DESCRIPTION="`echo "$SHOW_INTERFACE" | grep -i -B 1 -A 0 "$IP" | head -n1 | awk -F": " '{print $2}'`"
-		if [ -n "$DESCRIPTION" ];then
-			IP_ADDR_SHOW="`echo "$IP_ADDR_SHOW" | sed -e "s/$IP/$DESCRIPTION/g"`"
-		fi
+		local IP_ADDR_SHOW="`echo "$IP_ADDR_SHOW" | sed -e "s/$IP/$IP\t$DESCRIPTION/g"`"
 	done
-	SEG_LIST="`echo "$IP_ADDR_SHOW" | awk -F"\t" '{print "\t• "$1" ("$2")"}'`"
-	}
-
-function ispInterfaceEdit
-	{
-	headLine "Интерфейс провайдера"
-	local CURENT="`echo "$CONFIG" | grep "^ISP_INTERFACE="`"
-	if [ -n "$CURENT" ];then
-		local PARAM="`echo "$CURENT" | awk -F"=" '{print $1}'`"
-		local VALUE="`echo "$CURENT" | awk -F"ISP_INTERFACE=" '{print $2}' | awk '{gsub(/"/,"")}1'`"
-		local NEW=""
-		echo "Текущее значение:$VALUE"
+	if [ -n "$3" ];then
+		local IP_ADDR_SHOW="`echo "$IP_ADDR_SHOW" | grep -E "$3"`"
+	fi
+	local IP_ADDR_SHOW="`echo "$IP_ADDR_SHOW" | awk -F"\t" '{VARIABLE=($3 != "" ? $3 : $1);print NR":\t"$1"\t"$2"\t"VARIABLE}'`"
+	if [ -n "$5" ];then
+		showText "\t$5"
 		echo ""
-		showText "\tВы можете указать один или несколько интерфейсов (из списка ниже) - разделяя их пробелами (например: \"eth3 nwg1\"). Вы можете ввести "0" - чтобы установить значение по умолчанию. Или нажать ввод (оставив поле пустым) - чтобы использовать текущее значение параметра."
-		echo ""
-		echo "Доступные варианты:"
-		echo ""
-		segListGet
-		echo "$SEG_LIST"
-		echo ""
-		read -r -p "Новое значение:"
-		echo ""
-		if [ "$REPLY" = "0" ];then
-			local NEW="$PARAM="'"'`route | grep '^default' | grep -o '[^ ]*$'`'"'
-		elif [ -n "$REPLY" ];then
-			local NEW="$PARAM="'"'"$REPLY"'"'
-		fi
-		if [ ! "$CURENT" = "$NEW" -a -n "$NEW" ];then
-			local NEW=$(echo "$NEW" | sed 's:/:\\/:g')
-			CONFIG=`echo "$CONFIG" | awk '/^ISP_INTERFACE=/ { $0 = "repl@ce" } 1' | sed "s/repl@ce/$NEW/g"`
-			CHANGES=`expr $CHANGES + 1`
-		fi
+	fi
+	if [ -n "$2" ];then
+		optionList "`echo "$IP_ADDR_SHOW" | awk -F"\t" '{print $1"\t "$4"\t (\t"$3"\t)"}'`"
 	else
-		messageBox "Параметр не обнаружен." "\033[91m"
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
+		optionList "`echo "$IP_ADDR_SHOW" | awk -F"\t" '{print $1"\t "$4}'`"
+	fi
+	result "$6" "d"
+	if [ -n "$REPLY" ];then
+		if [ "$1" = "a" ];then
+			local IP_ADDR_SHOW="`echo "$IP_ADDR_SHOW" | awk -F"\t" '{print $1"\t"$3}'`"
+		else
+			local IP_ADDR_SHOW="`echo "$IP_ADDR_SHOW" | awk -F"\t" '{print $1"\t"$2}'`"
+		fi
+		if [ -z "$4" ];then
+			REPLY="`echo "$IP_ADDR_SHOW" | grep "^\$REPLY:" | awk -F"\t" '{print $2}'`"
+		else
+			REPLY="`echo " $REPLY:" | sed 's/ $//g;s/ /:|^/g;s/^:|//g'`"
+			REPLY="`echo -e "$IP_ADDR_SHOW" | grep -E "$REPLY" | awk -F"\t" '{print $2}' | awk -v VARIABLE="$4" '{printf "%s%s", $0, VARIABLE}' | sed "s/\$4$//g"`"
+		fi
+	fi
+	if [ -z "$REPLY" ];then
+		REPLY="$7"
 	fi
 	}
 
-function listLoad
+function selectFromList	#1-список (вариант1 \n вариант2 ...)	#2-отображаемый список (опция1 \n опция2 ...)	#3-описание	#4-альтернатива	#5-текущее значение
+	{	# 2611.1
+	if [ -n "$2" ];then
+		local LIST="$2"
+	else
+		local LIST="$1"
+	fi
+	local LIST="`echo -e "$LIST" | awk '{print NR":\t"$0}'`"
+	if [ -n "$3" ];then
+		showText "\t$3"
+		echo ""
+	fi
+	optionList "`echo "$LIST" | awk -F"\t" '{print $1"\t "$2}'`"
+	if [ -n "$2" ];then
+		local LIST="$1"
+		local LIST="`echo -e "$LIST" | awk '{print NR":\t"$0}'`"
+	fi
+	result "$4" "d"
+	if [ -n "$REPLY" ];then
+		REPLY="`echo "$LIST" | grep "^\$REPLY:" | awk -F"\t" '{print $2}'`"
+	else
+		REPLY="$5"
+	fi
+	}
+
+function editValue	#1-тип (n/t)	#2-длинна строки/минимум	#3-допустимые символы/максимум	#4-описание	#5-запрос #6-текущее значение
+	{	# 2611.1
+	if [ -n "$5" ];then
+	local TEXT="$5"
+	else
+		local TEXT="Введите значение"
+	fi
+	if [ -n "$4" ];then
+		showText "\t$4"
+		echo ""
+	fi
+	if [ -n "$6" ];then
+		prefill "$TEXT: " "$6" REPLY
+	else
+		read -r -p "$ACC_CLR$TEXT: $RST_DFL"
+	fi
+	echo ""
+	local STATUS1=""
+	if [ "$1" = "t" -a -n "$2" ];then
+		if [ "`echo ${#REPLY}`" -gt "$2" ];then
+			local STATUS1="error"
+		fi
+	elif [ "$1" = "n" -a -n "$2" -a -n "$3" ];then
+		if [ "$REPLY" -lt "$2" -o "$REPLY" -gt "$3" ];then
+			local STATUS1="error"
+		fi
+	fi
+	local STATUS2=""
+	if [ "$1" = "t" -a -n "$3" ];then
+		local STATUS2="`echo "$REPLY" | sed "s/[$3]//g"`"
+	elif [ "$1" = "n" ];then
+		local STATUS2="`echo "$REPLY" | sed 's/^-//g' | sed 's/[0-9]//g'`"
+	fi
+	if [ -n "$STATUS2" ];then
+		REPLY=""
+		if [ "$1" = "t" ];then
+			showMessage "В строке есть недопустимые символы: $STATUS2" "e"
+		elif [ "$1" = "n" ];then
+			showMessage "В строке есть недопустимые символы: $STATUS2" "e"
+		fi
+		echo ""
+		editValue "$1" "$2" "$3" "$4" "$5" "$6"
+	elif [ -n "$STATUS1" ];then
+		REPLY=""
+		if [ "$1" = "t" ];then
+			showMessage "Максимальная длинна строки `multiEndong "$1" "символ"`." "e"
+		elif [ "$1" = "n" ];then
+			showMessage "Число находится за пределами интервала $1-$2." "e"
+		fi
+		echo ""
+		editValue "$1" "$2" "$3" "$4" "$5" "$6"
+	fi
+	}
+
+function selectAction	#1-тип (a|A a/ai/d/f/i/ii//n/t)	#2-3-настройки элемента	#4-описание	#5-запрос/альтернатива	#6-текущее значение
+	{	# 2611.1
+	if [ "$1" = "a" ];then
+		selectInterface "a" "" "$2" "$3" "$4" "$5" "$6"
+	elif [ "$1" = "ai" ];then
+		selectInterface "a" "ip" "$2" "$3" "$4" "$5" "$6"
+	elif [ "$1" = "d" ];then
+		browsePath "d" "$2" "$3" "$4" "$5" "$6"
+	elif [ "$1" = "f" ];then
+		browsePath "f" "$2" "$3" "$4" "$5" "$6"
+	elif [ "$1" = "i" ];then
+		selectInterface "i" "" "$2" "$3" "$4" "$5" "$6"
+	elif [ "$1" = "ii" ];then
+		selectInterface "i" "ip" "$2" "$3" "$4" "$5" "$6"
+	elif [ "$1" = "l" ];then
+		selectFromList "$2" "$3" "$4" "$5" "$6"
+	elif [ "$1" = "n" ];then
+		editValue "n" "$2" "$3" "$4" "$5" "$6"
+	elif [ "$1" = "t" ];then
+		editValue "t" "$2" "$3" "$4" "$5" "$6"
+	fi
+	}
+
+function getLine	#1-номер строки	#2-текст
+	{	# 2611.1
+	echo -e "$2" | awk "NR==$1"
+	#1-описание настройки
+	#2-комментарий к первому параметру
+	#3-запрос/альтернатива первого параметра
+	#4-комментарий ко второму параметру
+	#5-запрос/альтернатива второго параметра
+	}
+
+function showList	#1-список	#2-первый элемент (a|A a/ai/d/f/i/ii//n/t)	#3-разделитель	#4-второй элемент (a|A a/ai/d/f/i/ii//n/t) #5-тип списка (f/r/z)
+	{	# 2611.1
+	if [ -n "$5" ];then
+		if [ "$5" = "f" ];then
+			showText "\tВведите индекс элемента, который хотите отредактировать..."
+		elif [ "$5" = "r" -o "$5" = "z" ];then
+			showText "\tВведите индекс элемента, который хотите отредактировать, или воспользуйтесь дополнительными опциями..."
+		fi
+		echo ""
+	fi
+	if [ -n "$3" ];then
+			if [ -n "$2" -a "`echo "$2" | tr '[:upper:]' '[:lower:]'`" = "$2"  -a -n "$4" -a "`echo "$4" | tr '[:upper:]' '[:lower:]'`" = "$4" ];then
+				optionList "`echo -e "$1" | awk -F"\t" '{VARIABLE=($2 != "" && $3 != "" ? ($4 == "" ? $1" [\t"$2"\t] [\t"$3"\t]" : "\t\t\t\t\t"$1" ["$2"] ["$3"]") : ($4 == "" ? $1" \t\t[\t"$2$3"\t]" : "\t\t\t\t\t"$1" ["$2$3"]"));print VARIABLE}'`"
+			elif [ -n "$4" -a "`echo "$4" | tr '[:upper:]' '[:lower:]'`" = "$4" ];then
+				optionList "`echo -e "$1" | awk -F"\t" '{VARIABLE=($3 != "" ? ($4 == "" ? $1"\t "$2"\t [\t"$3"\t]" : "\t\t\t\t\t"$1" "$2" ["$3"]") : ($4 == "" ? $1"\t "$2 : "\t\t\t\t\t"$1" "$2));print VARIABLE}'`"
+			elif [ -n "$2" -a "`echo "$2" | tr '[:upper:]' '[:lower:]'`" = "$2"  ];then
+				optionList "`echo -e "$1" | awk -F"\t" '{VARIABLE=($3 != "" ? ($4 == "" ? $1" [\t"$2"\t]\t "$3 : "\t\t\t\t\t"$1" ["$2"] "$3) : ($4 == "" ? $1" [\t"$2"\t]" : "\t\t\t\t\t"$1" ["$2"]"));print VARIABLE}'`"
+			else
+				optionList "`echo -e "$1" | awk -F"\t" '{VARIABLE=($4 == "" ? $1"\t "$2" "$3 : "\t\t\t\t\t"$1" "$2" "$3);print VARIABLE}'`"
+			fi
+		else
+			if [ -n "$2" -a "`echo "$2" | tr '[:upper:]' '[:lower:]'`" = "$2"  ];then
+				optionList "`echo -e "$1" | awk -F"\t" '{VARIABLE=($3 == "" ? $1" [\t"$2"\t]" : "\t\t\t\t\t"$1" ["$2"]");print VARIABLE}'`"
+			else
+				optionList "`echo -e "$1" | awk -F"\t" '{VARIABLE=($3 == "" ? $1" \t"$2 : "\t\t\t\t\t"$1" "$2);print VARIABLE}'`"
+			fi
+		fi
+	}
+
+function deleteFromList	#1-не пустой список (r)	#2-список	#3-настройка=
+	{	# 2611.1
+	showText "\tВведите один или несколько (разделяя пробелами) индексов элементов (из списка выше), которые нужно удалить из списка."
+	echo ""
+	if [ -n "$3" ];then
+		showList "`echo "$2" | awk -v FS="$3" '{print NR":\t"$2}' `"
+	else
+		showList "$2"
+	fi
+	result "Отмена" "d"
+	REPLY="`echo " $REPLY:" | sed 's/ $//g;s/ /:|^/g;s/^:|//g'`"
+	if [ -n "`echo -e "$2" | grep -E "$REPLY"`" ];then
+		local VARIABLE="`echo -e "$2" | grep -v -E "$REPLY" | cut -f2- | awk '!seen[$0]++' | awk '{print NR":\t"$0}'`"
+		if [ -n "$VARIABLE" ];then
+			REPLY="$VARIABLE"
+		elif [ "$1" = "r" ];then
+			showMessage "Список не может быть пустым." "e"
+			echo ""
+			deleteFromList "$1" "$2" "$3"
+		fi
+	else
+		REPLY="`echo "$2" | cut -f2- | awk '!seen[$0]++' | awk '{print NR":\t"$0}'`"
+	fi
+	}
+
+function addToList	#1-тип настройки (a/ai/d/f/i/ii/l/n/t/[f/r/z \t внешний разделитель \t первый элемент (a|A a/ai/d/f/i/ii//n/t) \t внутренний разделитель \t второй элемент (a|A a/ai/d/f/i/ii/l/n/t) \t разделитель при пустых элементах])	#2-список	#3-вывод (/с разделителем)	#4-5-6-7-настройки элементов	#8-текст
+	{	# 2611.1
+	if [ -n "$1" ];then
+		local EMPTY="`echo -e "$1"`"
+		local FIRST=$(printf '%s' "$EMPTY" | cut -f3)
+		local INNER=$(printf '%s' "$EMPTY" | cut -f4)
+		local SECOND=$(printf '%s' "$EMPTY" | cut -f5)
+		local EMPTY=$(printf '%s' "$EMPTY" | cut -f6)
+	fi
+	local VARIABLE=""
+	selectAction "`echo "$FIRST" | tr '[:upper:]' '[:lower:]'`" "$4" "$5" "`getLine "2" "$8"`" "`getLine "3" "$8"`"
+	local VARIABLE="$REPLY"
+	if [ -n "$FIRST" -a "`echo "$FIRST" | tr '[:lower:]' '[:upper:]'`" = "$FIRST" -a -z "$VARIABLE" ];then
+		showMessage "Элемент не может быть пустым." "e"
+		echo ""
+		pressAnyKey
+	else
+		if [ -n "$SECOND" -a -n "$INNER" ];then
+			selectAction "`echo "$SECOND" | tr '[:upper:]' '[:lower:]'`" "$6" "$7" "`getLine "2" "$8"`" "`getLine "3" "$8"`"
+		else
+			REPLY=""
+		fi
+		local LIST="`echo "$2" | cut -f2-`"
+		if [ -n "$INNER" ];then
+			if [ -n "$VARIABLE" -a -n "$REPLY" ];then
+				if [ -n "$3" ];then
+					local SEPARATOR="$INNER"
+				else
+					local SEPARATOR="\t"
+				fi
+				REPLY="`echo -e "$LIST\n$3$VARIABLE$SEPARATOR$REPLY" | awk '!seen[$0]++'`"
+			else
+				if [ -n "$3" ];then
+					local SEPARATOR="$EMPTY"
+				else
+					local SEPARATOR=""
+				fi
+				REPLY="`echo -e "$LIST\n$3$VARIABLE$SEPARATOR$REPLY" | awk '!seen[$0]++'`"
+			fi
+		else
+			REPLY="`echo -e "$LIST\n$3$VARIABLE" | awk '!seen[$0]++'`"
+		fi
+	fi
+	REPLY="`echo "$REPLY" | awk '{print NR":\t"$0}'`"
+	}
+
+function editList	#1-тип настройки (a/ai/d/f/i/ii/l/n/t/[f/r/z \t внешний разделитель (№№ - не собирать список в строку) \t первый элемент (a|A a/ai/d/f/i/ii//n/t) \t внутренний разделитель \t второй элемент (a|A a/ai/d/f/i/ii/l/n/t) \t разделитель при пустых элементах])	#2-3-4-5-настройки элементов	#6-текст
+	{	# 2611.1
+	if [ -n "$1" ];then
+		local EMPTY="`echo -e "$1"`"
+		local MODE=$(printf '%s' "$EMPTY" | cut -f1)
+		local OUTER=$(printf '%s' "$EMPTY" | cut -f2)
+		local FIRST=$(printf '%s' "$EMPTY" | cut -f3)
+		local INNER=$(printf '%s' "$EMPTY" | cut -f4)
+		local SECOND=$(printf '%s' "$EMPTY" | cut -f5)
+		local EMPTY=$(printf '%s' "$EMPTY" | cut -f6)
+	fi
+	if ! [ "$MODE" = "f" -a "`echo "$LIST" | wc -l`" = "1" ];then
+		showList "$LIST" "$FIRST" "$INNER" "$SECOND" "$MODE"
+		if [ "$MODE" = "r" -o "$MODE" = "z" ];then
+			local VARIABLE="Дополнительно"
+		else
+			local VARIABLE="Далее"
+		fi
+		result "$VARIABLE" "d"
+	else
+		REPLY="1"
+	fi
+	if [ -n "$REPLY" ];then
+		local LINE="`echo "$LIST" | grep "^\$REPLY:"`"
+	else
+		local LINE=""
+	fi
+	if [ -n "$LINE" ];then	
+		if [ -n "$FIRST" -a "`echo "$FIRST" | tr '[:upper:]' '[:lower:]'`" = "$FIRST" ];then
+			local VARIABLE="`echo "$LINE" | awk -F"\t" '{print $2}'`"
+			selectAction "$FIRST" "$2" "$3" "`getLine "2" "$6"`" "`getLine "3" "$6"`" "$VARIABLE"
+			local VARIABLE="$REPLY"
+		else
+			local VARIABLE="`echo "$LINE" | awk -F"\t" '{print $2}'`"
+		fi
+		if [ -n "$SECOND" -a "`echo "$SECOND" | tr '[:upper:]' '[:lower:]'`" = "$SECOND" ];then
+			REPLY="`echo "$LINE" | awk -F"\t" '{print $3}'`"
+			selectAction "$SECOND" "$4" "$5" "`getLine "4" "$6"`" "`getLine "5" "$6"`" "$REPLY"
+		else
+			REPLY="`echo "$LINE" | awk -F"\t" '{print $3}'`"
+		fi
+		if [ -n "$INNER" ];then
+			local VARIABLE="`echo "$LINE" | awk -F"\t" '{print $1}'`\t$VARIABLE\t$REPLY"
+		else
+			local VARIABLE="`echo "$LINE" | awk -F"\t" '{print $1}'`\t$VARIABLE"
+		fi
+		local LINE=$(echo "$LINE" | sed 's:/:\\/:g')
+		local VARIABLE=$(echo -e "$VARIABLE" | sed 's:/:\\/:g')
+		local LIST=`echo "$LIST" | sed "s/^\$LINE$/$VARIABLE/g"`
+		if ! [ "$MODE" = "f" -a "`echo "$LIST" | wc -l`" = "1" ];then
+			editList "" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9"
+		else
+			REPLY="`echo "$LIST" | awk -v INNER="$INNER" -v EMPTY="$EMPTY" -F"\t" '{VARIABLE=($2 != "" && $3 != "" ? $2INNER$3 : $2EMPTY$3);print VARIABLE}' | awk -v OUTER="$OUTER" '{printf "%s%s", $0, OUTER}' | sed -e "s/\$OUTER$//g"`"
+		fi
+	else
+		if [ "$MODE" = "r" -o "$MODE" = "z" ];then
+			showText "\tЗдесь можно: удалять элементы, добавить новый, или завершить работу с этим списком..."
+			echo ""
+			option "1" "Удалить"
+			option "2" "Добавить"
+			result "Далее" "d"
+		else
+			REPLY=""
+		fi
+		if [ "$REPLY" = "1" ];then
+			deleteFromList "$NODE" "$LIST"
+			local LIST="$REPLY"
+			editList "" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9"
+		elif [ "$REPLY" = "2" ];then
+			addToList "$1" "$LIST" "" "$2" "$3" "$4" "$5" "$6"
+			local LIST="$REPLY"
+			editList "" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9"
+		else
+			REPLY="`echo "$LIST" | awk -v INNER="$INNER" -v EMPTY="$EMPTY" -F"\t" '{VARIABLE=($2 != "" && $3 != "" ? $2INNER$3 : $2EMPTY$3);print VARIABLE}'`"
+			if ! [ "$OUTER" = "№№" ];then
+				REPLY="`echo "$REPLY" | awk -v OUTER="$OUTER" '{printf "%s%s", $0, OUTER}' | sed -e "s/\$OUTER$//g"`"
+			fi
+		fi
+	fi
+	}
+
+function editSubList	#1-тип настройки (a/ai/d/f/i/ii/l/n/t/[f/r/z \t внешний разделитель \t первый элемент (a|A a/ai/d/f/i/ii//n/t) \t внутренний разделитель \t второй элемент (a|A a/ai/d/f/i/ii/l/n/t) \t разделитель при пустых элементах])	#2-3-4-5-настройки элементов	#6-текст
+	{	# 2611.1
+	local INNER="`echo -e "$1"`"
+	local OUTER=$(printf '%s' "$INNER" | cut -f2)
+	local INNER=$(printf '%s' "$INNER" | cut -f4)
+	local LIST="`echo "$VARIABLE" | sed -e "s/\$OUTER/\\n/g"`"
+	if [ -n "$INNER" ];then
+		local LIST="`echo -e "$LIST" | awk -v FS="$INNER" '{print NR":\t"$1"\t"$2}'`"
+	else
+		local LIST="`echo -e "$LIST" | awk '{print NR":\t"$0}'`"
+	fi
+	editList "$1" "$2" "$3" "$4" "$5" "$6"
+	}
+
+function editSetting	#1-тип настройки (a/ai/d/f/i/ii/l/n/t/[f/r/z \t внешний разделитель \t первый элемент (a|A a/ai/d/f/i/ii//n/t) \t внутренний разделитель \t второй элемент (a|A a/ai/d/f/i/ii/l/n/t) \t разделитель при пустых элементах])	#2-настройка=	#3-блокирующий символ	#4-ограничители	#5-6-7-8-настройки элементов	#9-текст
+	{	# 2611.1
+	if [ -n "$CONFIG" ];then
+		if [ -n "$3" ];then
+			local VARIABLE="^$2|^$3$2"
+		else
+			local VARIABLE="^$2"
+		fi
+		local CURENT="`echo -e "$CONFIG" | grep -E "$VARIABLE"`"
+		local VARIABLE="`echo "$CURENT" | grep -E "^\$REPLY$"`"
+		if [ -n "$VARIABLE" ];then
+			local CURENT="$VARIABLE"
+		else
+			showText "\t`getLine "1" "$9"`"
+			echo ""
+		fi
+		local NEW="$CURENT"
+		if [ -n "$CURENT" ];then
+			if [ "`echo -e "$CURENT" | wc -l`" = "1" ];then
+				local VARIABLE=""
+				if [ -n "$3" ];then
+					local VARIABLE="^$3"
+					if [ "`echo "$NEW" | grep -E "$VARIABLE" | wc -l`" = "0" ];then
+						halfColored "Состояние: " "настройка активна" "$OK_CLR"
+						echo ""
+						showText "\tХотите её отключить?"
+						local STATUS1=""
+						local STATUS0="0"
+					else
+						halfColored "Состояние: " "настройка отключена" "$ERR_CLR"
+						echo ""
+						showText "\tХотите её задействовать?"
+						local STATUS1="1"
+						local STATUS0=""
+					fi
+					echo ""
+					local VARIABLE="^$3"
+					option "1" "Да" "" "$STATUS1"
+					result "Нет" "$STATUS0"
+					if ! [ "$REPLY" = "1" -o "$REPLY" = "0" ];then
+						REPLY="$STATUS1$STATUS0"
+					fi
+					if [ "$REPLY" = "1" ];then
+						if [ "`echo "$NEW" | grep -E "$VARIABLE" | wc -l`" = "0" ];then
+							local NEW="$3$NEW"
+							halfColored "Состояние: " "настройка отключена" "$ERR_CLR"
+							echo ""
+						else
+							local NEW="`echo "$NEW" | awk -v VARIABLE="$3" '{sub("^" VARIABLE, ""); print }'`"
+						fi
+					fi
+					if [ "`echo "$NEW" | grep -E "$VARIABLE" | wc -l`" = "0" ];then
+						local VARIABLE=""
+					else
+						local VARIABLE="block"
+					fi
+				fi
+				if [ -z "$VARIABLE" ];then
+					local VARIABLE="`echo "$NEW" | awk -v FS="$2" '{print $2}'`"
+					if [ -n "$4" ];then
+						local VARIABLE="`echo "$VARIABLE" | sed -e "s/^${4//\\/\\\\}//" -e "s/${4//\\/\\\\}$//"`"
+					fi
+					halfColored "Текущее значение: " "$VARIABLE"
+					echo ""
+					if [ -n "`echo -e "$1" | grep $'\t'`" ];then
+						editSubList "$1" "$5" "$6" "$7" "$8" "$9"
+					else
+						selectAction "$1" "$5" "$6" "`getLine "2" "$9"`" "`getLine "3" "$9"`" "$VARIABLE"
+					fi
+					if [ -n "$REPLY" -a -n "$VARIABLE" ];then
+						local NEW="$2$4$REPLY$4"
+					else
+						local NEW="$CURENT"
+					fi
+				fi
+			fi
+			if ! [ "$CURENT" = "$NEW" ];then
+				halfColored "Новое значение: " "$REPLY"
+				echo ""
+				option "1" "Готово" "" "d"
+				result "Отмена"
+				if ! [ "$REPLY" = "0" ];then
+					local CURENT=$(echo "$CURENT" | sed 's:/:\\/:g')
+					local NEW=$(echo "$NEW" | sed 's:/:\\/:g')
+					CONFIG=`echo "$CONFIG" | sed "s/$CURENT/$NEW/g"`
+				fi
+			else
+				showMessage "Вы оставили настройку без изменений."
+				echo ""
+				pressAnyKey
+			fi
+		else
+			showMessage "Настройка не обнаружена." "e"
+			echo ""
+			pressAnyKey
+		fi
+	else
+		showMessage "Не удалось загрузить конфигурацию." "e"
+		echo ""
+		pressAnyKey
+	fi
+	}
+
+function multiSettings	#1-тип (тип списка [f/r/z] = тип настройки [a/ai/d/f/i/ii/l/n/t/(f/r/z \t внешний разделитель \t первый элемент [a|A a/ai/d/f/i/ii/l/n/t] \t внутренний разделитель \t второй элемент [a|A a/ai/d/f/i/ii/l/n/t] \t разделитель при пустых элементах)])	#2-настройка=	#3-блокирующий символ	#4-ограничители	#5-6-7-8-настройки элементов	#9-текст
+	{	# 2611.1
+	local MODE="`echo $1 | awk -F"=" '{print $1}'`"
+	local SECOND="`echo -e "$1"`"
+	local FIRST=$(printf '%s' "$SECOND" | cut -f3)
+	local INNER=$(printf '%s' "$SECOND" | cut -f4)
+	local SECOND=$(printf '%s' "$SECOND" | cut -f5)
+	if [ -n "$CONFIG" ];then
+		if [ -n "$3" ];then
+			local VARIABLE="^$2|^$3$2"
+		else
+			local VARIABLE="^$2"
+		fi
+		local LIST="`echo -e "$CONFIG" | grep -E "$VARIABLE" | awk '{print NR":\t"$0}'`"
+		if [ -n "$INNER" ];then
+			local VARIABLE="`echo "$LIST" | awk -v FS="$2" '{print $1"\t"$2}' | awk -v FS="$INNER" '{print $1"\t"$2}' | awk -F"\t" '{print $1"\t"$3"\t"$4"\t"$2}'`"
+		else
+			local VARIABLE="`echo "$LIST" | awk -v FS="$2" '{print $1"\t"$2}' | awk -F"\t" '{print $1"\t"$3"\t"$2}'`"
+		fi
+		if [ -z "$STATUS0" ];then
+			showText "\t`getLine "1" "$9"`"
+			echo ""
+			local STATUS0="block"
+		fi
+		showList "$VARIABLE" "$FIRST" "$INNER" "$SECOND" "$MODE"
+		if [ "$MODE" = "r" -o "$MODE" = "z" ];then
+			local VARIABLE="Дополнительно"
+		else
+			local VARIABLE="Готово"
+		fi
+		result "$VARIABLE" "d"
+		REPLY="`echo "$LIST" | grep "^\$REPLY:" | awk -F"\t" '{print $2}'`"
+		if [ -n "$REPLY" ];then
+			editSetting "`echo "$1" | sed -e "s/^$MODE=//g"`" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9"
+			multiSettings "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9"
+		else
+			showText "\tЗдесь можно: удалять элементы, добавить новый, или завершить работу с этим списком..."
+			echo ""
+			option "1" "Удалить"
+			option "2" "Добавить"
+			result "Готово" "d"
+			if [ "$REPLY" = "1" -o "$REPLY" = "2" ];then
+				if [ "$REPLY" = "1" ];then
+					deleteFromList "$MODE" "$LIST" "$2"	
+				elif [ "$REPLY" = "2" ];then
+					addToList "$1" "$LIST" "$2" "$5" "$6" "$7" "$8" "$9"
+				fi
+				if [ -z "$REPLY" ];then
+					REPLY="`echo "$2" | awk '{print NR":\t"$0}'`"
+				fi
+				if ! [ "$LIST" = "$REPLY" ];then
+					local VARIABLE="`echo "$LIST" | head -n 1 | cut -f2-`"
+					local BEGINING="`echo "$CONFIG" | awk -v VARIABLE="$VARIABLE" '$0 == VARIABLE { exit } 1'`"
+					if [ -n "$BEGINING" -a -n "$REPLY" ];then
+						REPLY="`echo -e "\n$REPLY" | cut -f2-`"
+					fi
+					local VARIABLE="`echo "$LIST" | tail -n 1 | cut -f2-`"
+					local ENDING="`echo "$CONFIG" | awk -v VARIABLE="$VARIABLE" 'f; $0 == VARIABLE { f=1 }'`"
+					if [ -n "$ENDING" ];then
+						local ENDING="\n$ENDING"
+					fi
+					CONFIG="`echo -e "$BEGINING$REPLY$ENDING"`"
+					#CONFIG="`echo -e "$CONFIG"`"
+				fi
+				multiSettings "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9"
+			fi
+		fi
+	fi
+	}
+
+function getSetting	#1-настройка=	#2-блокирующий символ	#3-тип (b/v)	#4-ограничители
+	{	# 2611.1
+	if [ -f "$PACKAGE_CONFIG_FILE" ];then
+		local CURENT="`cat "$PACKAGE_CONFIG_FILE"`"
+		local CURENT=`echo -e "$CURENT"`
+		if [ -n "$2" ];then
+			local VARIABLE="^$1|^$2$1"
+		else
+			local VARIABLE="^$1"
+		fi
+		local CURENT="`echo "$CURENT" | grep -E "$VARIABLE"`"
+		REPLY="`echo "$CURENT" | awk -v FS="$1" '{print $2}'`"
+		if [ -n "$4" ];then
+			REPLY="`echo "$REPLY" | sed -e "s/^${4//\\/\\\\}//" -e "s/${5//\\/\\\\}$//"`"
+		fi
+		if [ "$3" = "v" ];then
+			echo "$REPLY"
+		elif [ "$3" = "b" -a -n "$2" -a -n "`echo "$CURENT" | awk -F"=" '{print $1}' | grep -E "^$2"`" ];then
+			echo "$2"
+		fi
+	fi
+	}
+
+function saveConfig	#1-файл конфигурации	#2-сохраняемые переменные
+	{	# 2611.1
+	if [ -n "$1" ];then
+		local CONFIG_PATH="$1"
+	else
+		local CONFIG_PATH="$SCRIPT_CONFIG_FILE"
+	fi
+	if [ -n "$2" ];then
+		local LIST="$2"
+	else
+		local LIST="$SCRIPT_SETTINGS"
+	fi
+	local SETTINGS=""
+	IFS=$' '
+	for VARIABLE in $LIST;do
+		eval "local SETTINGS=\`echo \"\$SETTINGS\\n\$VARIABLE=\\\"\$$VARIABLE\\\"\"\`"
+	done
+	local SETTINGS="`echo -e "$SETTINGS" | grep -v '^$'`"
+	echo "$SETTINGS" > "$CONFIG_PATH"
+	if [ -n "$SETTINGS" ];then
+		showMessage "Настройки сохранены." "o"
+		echo ""
+		pressAnyKey
+	fi
+	}
+
+function loadConfig	#1-файл конфигурации	#2-ошибки (/игнорировать)
+	{	# 2611.1
+	if [ -n "$1" ];then
+		local CONFIG_PATH="$1"
+	else
+		local CONFIG_PATH="$SCRIPT_CONFIG_FILE"
+	fi
+	if [ -f "$CONFIG_PATH" ];then
+		source "$CONFIG_PATH"
+	elif [ -z "$2" ];then
+		showMessage "Файл конфигурации отсутствует." "e"
+		exit
+	fi
+	}
+
+function statusOPKG	#1-название пакета
+	{	# 2611.1
+	local PACLAGE="`echo "$1" | tr '[:upper:]' '[:lower:]'`"
+	local PACKAGE=`opkg list-installed | grep "^\$PACLAGE "`
+	if [ -n "$PACKAGE" ];then
+		if [ -n "`echo "$PACKAGE" | awk -F" - " '{print $2}'`" ];then
+			echo "`echo "$PACKAGE" | awk -F" - " '{print $2}'`"
+		else
+			echo "$PACKAGE"
+		fi
+	else
+		echo ""
+	fi
+	}
+
+function installOPKG	#1-название пакета	#2-подробности (/скрыть)
+	{	# 2611.1
+	local PACLAGE="`echo "$1" | tr '[:upper:]' '[:lower:]'`"
+	if [ -z "`opkg list-installed | grep "\$PACLAGE "`" ];then
+		echo "Установка $1..."
+		LOG=$(opkg update 2>&1)
+		LOG="$LOG\n$(opkg install $PACLAGE 2>&1)"
+		echo ""
+		if [ -z "`statusOPKG "$PACLAGE"`" ];then
+			showMessage "Не удалось установить $1." "e"
+			echo ""
+			echo -e "$LOG"
+			exit
+		fi
+	elif [ -z "$2" ];then
+		echo "Пакет $1 уже установлен."
+		echo ""
+	fi
+	}
+
+function removeOPKG	#1-название пакета	#2-подробности (/скрыть)	#3-автоответ (n/y)
+	{	# 2611.1
+	local PACLAGE="`echo "$1" | tr '[:upper:]' '[:lower:]'`"
+	if [ -z "$2" ];then
+		echo "Удаление $1..."
+		echo ""
+	fi
+	if [ "$3" = "n" ];then
+		LOG=$(yes n | opkg remove $PACLAGE 2>&1)
+	elif [ "$3" = "y" ];then
+		LOG=$(yes | opkg remove $PACLAGE 2>&1)
+	else
+		LOG=$(opkg remove $PACLAGE 2>&1)
+	fi
+	if [ -n "`statusOPKG "$1"`" -a -z "$2" ];then
+		showMessage "Не удалось удалить $1." "e"
+		echo ""
+		echo -e "$LOG"
+		echo ""
+		pressAnyKey
+	fi
+	}
+
+function updateOPKG	#1-название пакета
+	{	# 2611.1
+	local PACKAGE="`echo "$1" | tr '[:upper:]' '[:lower:]'`"
+	if [ -n "`opkg list-installed | grep "\$PACKAGE "`" ];then
+		local CURENT="`statusOPKG "$PACKAGE"`"
+		echo "Обновление $1..."
+		LOG=$(opkg update 2>&1)
+		LOG="$LOG\n$(opkg upgrade $PACKAGE 2>&1)"
+		echo ""
+		if [ "$CURENT" = "`statusOPKG "$PACKAGE"`" ];then
+			showMessage "Не удалось обновить $1." "e"
+			echo ""
+			echo -e "$LOG"
+			exit
+		fi
+	fi
+	}
+
+function copyRight
+	{	# 2611.1
+	if [ "`date +"%C%y"`" -gt "$SCRIPT_YEAR" ];then
+		local NOW="-`date +"%C%y"`"
+	else
+		local NOW=""
+	fi
+	local COPYRIGHT="© $SCRIPT_YEAR$NOW rino Software Lab."
+	local VARIABLE="$SCRIPT_NAME $SCRIPT_VERSION $COPYRIGHT "
+	local VARIABLE="${#VARIABLE}"
+	local VARIABLE="$((COLUNS - VARIABLE))"
+	if [ "$VARIABLE" -gt "0" ];then
+		local VARIABLE=" $SCRIPT_NAME $ACC_CLR$SCRIPT_VERSION$RST_DFL`space "h" "$VARIABLE"`$COPYRIGHT"
+	else
+		local VARIABLE="${#COPYRIGHT}"
+		local VARIABLE="$((COLUNS - VARIABLE - 1))"
+		local VARIABLE="`space "h" "$VARIABLE"`$COPYRIGHT"
+		echo -e " $SCRIPT_NAME $ACC_CLR$SCRIPT_VERSION$RST_DFL"
+	fi
+	read -t 1 -n 1 -r -p "$VARIABLE" keypress
+	echo ""
+	}
+
+function statusPackage	#1-скрыть сообщение
 	{
-	echo -e "\tЗагрузка..."
-	wget -q -O /tmp/nk.list https://raw.githubusercontent.com/rino-soft-lab/nk/refs/heads/main/screenshots/l-1
-	local LIST=`cat /tmp/nk.list | awk -F"sp@ce" '{print NR":\t"$1"\t"$2}'`
-	rm -rf /tmp/nk.list
-	echo ""
-	showText "\tВы можете выбрать один из вариантов (в списке ниже)..."
-	echo ""
-	echo "$LIST" | awk -F"\t" '{print "\t"$1, $2}'
-	echo -e "\t0: Отмена (по умолчанию)"
-	echo ""
-	read -r -p "Ваш выбор:"
-	echo ""
-	if [ -n "`echo "$LIST" | grep "^\$REPLY:"`" ];then
-		REPLY=`echo "$LIST" | grep "^\$REPLY:" | awk -F"\t" '{print $3}'`
+	LOG=$(/opt/etc/init.d/S51nfqws2 status 2>&1)
+	if ! [ "`echo "$LOG" | grep -c "Service NFQWS2 is running"`" -gt "0" ];then
+		REPLY="dead"
 	else
 		REPLY=""
 	fi
 	}
 
-function httpsEdit
+function restartPackage
 	{
-	headLine "Стратегия обработки HTTP(S) трафика"
-	local CURENT="`echo "$CONFIG" | grep "^NFQWS_ARGS="`"
-	if [ -n "$CURENT" ];then
-		local PARAM="`echo "$CURENT" | awk -F"=" '{print $1}'`"
-		local VALUE="`echo "$CURENT" | awk -F"NFQWS_ARGS=" '{print $2}' | awk '{gsub(/"/,"")}1'`"
-		local NEW=""
-		local SAVE=""
-		echo "Текущее значение:$VALUE"
-		echo ""
-		showText "\tВы можете ввести новую стратегию обработки HTTP(S) трафика, или нажать ввод (оставив поле пустым) - чтобы использовать текущее значение параметра."
-		echo ""
-		read -r -p "Новое значение:"
-		echo ""
-		if [ "$REPLY" = "L" ];then
-			listLoad
-		fi
-		if [ -n "$REPLY" ];then
-			local NEW="$PARAM="'"'"$REPLY"'"'
-			echo "Сохранить старую HTTP(S) стратегию?"
-			echo ""
-			echo -e "\t1: Да"
-			echo -e "\t0: Нет (по умолчанию)"
-			echo ""
-			read -r -p "Ваш выбор:"
-			echo ""
-			if [ "$REPLY" = "1" ];then
-				local SAVE='\nsp@ce\n# HTTP(S) strategy BackUp ['`date +"%C%y.%m.%d %H:%M:%S"`']\n#'"$PARAM#=\"$VALUE\""
-			fi
-		fi
-		if [ ! "$CURENT" = "$NEW" -a -n "$NEW" ];then
-			local NEW=$(echo "$NEW" | sed 's:/:\\/:g')
-			CONFIG=`echo "$CONFIG" | awk '/^NFQWS_ARGS=/ { $0 = "repl@ce" } 1' | sed "s/repl@ce/$NEW/g"`
-			CHANGES=`expr $CHANGES + 1`
-			if [ -n "$SAVE" ];then
-				CONFIG="$CONFIG`echo -e "$SAVE"`"
-			fi
-		fi
+	if [ -z "`statusPackage`" ];then
+		echo "Перезапуск $PACKAGE_NAME..."
 	else
-		messageBox "Параметр не обнаружен." "\033[91m"
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
+		echo "Запуск $PACKAGE_NAME..."
 	fi
-	}
-
-function quicEdit
-	{
-	headLine "Стратегия обработки QUIC трафика"
-	local CURENT="`echo "$CONFIG" | grep "^NFQWS_ARGS_QUIC="`"
-	if [ -n "$CURENT" ];then
-		local PARAM="`echo "$CURENT" | awk -F"=" '{print $1}'`"
-		local VALUE="`echo "$CURENT" | awk -F"NFQWS_ARGS_QUIC=" '{print $2}' | awk '{gsub(/"/,"")}1'`"
-		local NEW=""
-		local SAVE=""
-		echo "Текущее значение:$VALUE"
-		echo ""
-		showText "\tВы можете ввести новую стратегию обработки QUIC трафика, или нажать ввод (оставив поле пустым) - чтобы использовать текущее значение параметра."
-		echo ""
-		read -r -p "Новое значение:"
-		echo ""
-		if [ "$REPLY" = "L" ];then
-			listLoad
-		fi
-		if [ -n "$REPLY" ];then
-			local NEW="$PARAM="'"'"$REPLY"'"'
-			echo "Сохранить старую QUIC стратегию?"
-			echo ""
-			echo -e "\t1: Да"
-			echo -e "\t0: Нет (по умолчанию)"
-			echo ""
-			read -r -p "Ваш выбор:"
-			echo ""
-			if [ "$REPLY" = "1" ];then
-				local SAVE='\nsp@ce\n# QUIC strategy BackUp ['`date +"%C%y.%m.%d %H:%M:%S"`']\n#'"$PARAM#=\"$VALUE\""
-			fi
-		fi
-		if [ ! "$CURENT" = "$NEW" -a -n "$NEW" ];then
-			local NEW=$(echo "$NEW" | sed 's:/:\\/:g')
-			CONFIG=`echo "$CONFIG" | awk '/^NFQWS_ARGS_QUIC=/ { $0 = "repl@ce" } 1' | sed "s/repl@ce/$NEW/g"`
-			CHANGES=`expr $CHANGES + 1`
-			if [ -n "$SAVE" ];then
-				CONFIG=$CONFIG"`echo -e "$SAVE"`"
-			fi
-		fi
-	else
-		messageBox "Параметр не обнаружен." "\033[91m"
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-	fi
-	}
-
-function udpEdit
-	{
-	headLine "Стратегия обработки UDP трафика"
-	local CURENT="`echo "$CONFIG" | grep "^NFQWS_ARGS_UDP="`"
-	if [ -n "$CURENT" ];then
-		local PARAM="`echo "$CURENT" | awk -F"=" '{print $1}'`"
-		local VALUE="`echo "$CURENT" | awk -F"NFQWS_ARGS_UDP=" '{print $2}' | awk '{gsub(/"/,"")}1'`"
-		local NEW=""
-		local SAVE=""
-		echo "Текущее значение:$VALUE"
-		echo ""
-		showText "\tВы можете ввести новую стратегию обработки UDP трафика, или нажать ввод (оставив строку пустой) - чтобы использовать текущее значение параметра."
-		echo ""
-		read -r -p "Новое значение:"
-		echo ""
-		if [ "$REPLY" = "L" ];then
-			listLoad
-		fi
-		if [ -n "$REPLY" ];then
-			local NEW="$PARAM="'"'"$REPLY"'"'
-			echo "Сохранить старую UDP стратегию?"
-			echo ""
-			echo -e "\t1: Да"
-			echo -e "\t0: Нет (по умолчанию)"
-			echo ""
-			read -r -p "Ваш выбор:"
-			echo ""
-			if [ "$REPLY" = "1" ];then
-				local SAVE='\nsp@ce\n# UDP strategy BackUp ['`date +"%C%y.%m.%d %H:%M:%S"`']\n#'"$PARAM#=\"$VALUE\""
-			fi
-		fi
-		if [ ! "$CURENT" = "$NEW" -a -n "$NEW" ];then
-			local NEW=$(echo "$NEW" | sed 's:/:\\/:g')
-			CONFIG=`echo "$CONFIG" | awk '/^NFQWS_ARGS_UDP=/ { $0 = "repl@ce" } 1' | sed "s/repl@ce/$NEW/g"`
-			CHANGES=`expr $CHANGES + 1`
-			if [ -n "$SAVE" ];then
-				CONFIG=$CONFIG"`echo -e "$SAVE"`"
-			fi
-		fi
-	else
-		messageBox "Параметр не обнаружен." "\033[91m"
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-	fi
-	}
-
-function tcpPortsEdit
-	{
-	headLine "TCP порты для iptables"
-	local CURENT="`echo "$CONFIG" | grep "^TCP_PORTS="`"
-	if [ -n "$CURENT" ];then
-		local PARAM="`echo "$CURENT" | awk -F"=" '{print $1}'`"
-		local VALUE="`echo "$CURENT" | awk -F"TCP_PORTS=" '{print $2}' | awk '{gsub(/"/,"")}1'`"
-		local NEW=""
-		local SAVE=""
-		echo "Текущее значение:$VALUE"
-		echo ""
-		showText "\tВы можете указать новые TCP порты для iptables, или нажать ввод (оставив строку пустой) - чтобы использовать текущее значение параметра."
-		echo ""
-		read -r -p "Новое значение:"
-		echo ""
-		if [ "$REPLY" = "L" ];then
-			listLoad
-		fi
-		if [ -n "$REPLY" ];then
-			local NEW="$PARAM="'"'"$REPLY"'"'
-			echo "Сохранить старое значение?"
-			echo ""
-			echo -e "\t1: Да"
-			echo -e "\t0: Нет (по умолчанию)"
-			echo ""
-			read -r -p "Ваш выбор:"
-			echo ""
-			if [ "$REPLY" = "1" ];then
-				local SAVE='\nsp@ce\n# TCP ports for iptables rules BackUp ['`date +"%C%y.%m.%d %H:%M:%S"`']\n#'"$PARAM#=\"$VALUE\""
-			fi
-		fi
-		if [ ! "$CURENT" = "$NEW" -a -n "$NEW" ];then
-			local NEW=$(echo "$NEW" | sed 's:/:\\/:g')
-			CONFIG=`echo "$CONFIG" | awk '/^TCP_PORTS=/ { $0 = "repl@ce" } 1' | sed "s/repl@ce/$NEW/g"`
-			CHANGES=`expr $CHANGES + 1`
-			if [ -n "$SAVE" ];then
-				CONFIG=$CONFIG"`echo -e "$SAVE"`"
-			fi
-		fi
-	else
-		messageBox "Параметр не обнаружен." "\033[91m"
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-	fi
-	}
-
-function udpPortsEdit
-	{
-	headLine "UDP порты для iptables"
-	local CURENT="`echo "$CONFIG" | grep "^UDP_PORTS="`"
-	if [ -n "$CURENT" ];then
-		local PARAM="`echo "$CURENT" | awk -F"=" '{print $1}'`"
-		local VALUE="`echo "$CURENT" | awk -F"UDP_PORTS=" '{print $2}' | awk '{gsub(/"/,"")}1'`"
-		local NEW=""
-		local SAVE=""
-		echo "Текущее значение:$VALUE"
-		echo ""
-		showText "\tВы можете указать новые UDP порты для iptables, или нажать ввод (оставив строку пустой) - чтобы использовать текущее значение параметра."
-		echo ""
-		read -r -p "Новое значение:"
-		echo ""
-		if [ "$REPLY" = "L" ];then
-			listLoad
-		fi
-		if [ -n "$REPLY" ];then
-			local NEW="$PARAM="'"'"$REPLY"'"'
-			echo "Сохранить старое значение?"
-			echo ""
-			echo -e "\t1: Да"
-			echo -e "\t0: Нет (по умолчанию)"
-			echo ""
-			read -r -p "Ваш выбор:"
-			echo ""
-			if [ "$REPLY" = "1" ];then
-				local SAVE='\nsp@ce\n# UDP ports for iptables rules BackUp ['`date +"%C%y.%m.%d %H:%M:%S"`']\n#'"$PARAM#=\"$VALUE\""
-			fi
-		fi
-		if [ ! "$CURENT" = "$NEW" -a -n "$NEW" ];then
-			local NEW=$(echo "$NEW" | sed 's:/:\\/:g')
-			CONFIG=`echo "$CONFIG" | awk '/^UDP_PORTS=/ { $0 = "repl@ce" } 1' | sed "s/repl@ce/$NEW/g"`
-			CHANGES=`expr $CHANGES + 1`
-			if [ -n "$SAVE" ];then
-				CONFIG=$CONFIG"`echo -e "$SAVE"`"
-			fi
-		fi
-	else
-		messageBox "Параметр не обнаружен." "\033[91m"
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-	fi
-	}
-
-function policyNameEdit
-	{
-	headLine "Название политики"
-	local CURENT="`echo "$CONFIG" | grep "^POLICY_NAME="`"
-	if [ -n "$CURENT" ];then
-		local PARAM="`echo "$CURENT" | awk -F"=" '{print $1}'`"
-		local VALUE="`echo "$CURENT" | awk -F"POLICY_NAME=" '{print $2}' | awk '{gsub(/"/,"")}1'`"
-		local NEW=""
-		local SAVE=""
-		echo "Текущее значение:$VALUE"
-		echo ""
-		showText "\tВы можете указать новое название политики, или нажать ввод (оставив поле пустым) - чтобы использовать текущее значение параметра."
-		echo ""
-		read -r -p "Новое значение:"
-		echo ""
-		if [ -n "$REPLY" ];then
-			local NEW="$PARAM="'"'"$REPLY"'"'
-			echo "Сохранить старое значение?"
-			echo ""
-			echo -e "\t1: Да"
-			echo -e "\t0: Нет (по умолчанию)"
-			echo ""
-			read -r -p "Ваш выбор:"
-			echo ""
-			if [ "$REPLY" = "1" ];then
-				local SAVE='\nsp@ce\n# Keenetic policy name BackUp ['`date +"%C%y.%m.%d %H:%M:%S"`']\n#'"$PARAM#=\"$VALUE\""
-			fi
-		fi
-		if [ ! "$CURENT" = "$NEW" -a -n "$NEW" ];then
-			local NEW=$(echo "$NEW" | sed 's:/:\\/:g')
-			CONFIG=`echo "$CONFIG" | awk '/^POLICY_NAME=/ { $0 = "repl@ce" } 1' | sed "s/repl@ce/$NEW/g"`
-			CHANGES=`expr $CHANGES + 1`
-			if [ -n "$SAVE" ];then
-				CONFIG=$CONFIG"`echo -e "$SAVE"`"
-			fi
-		fi
-	else
-		messageBox "Параметр не обнаружен." "\033[91m"
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-	fi
-	}
-
-function modeSwitch
-	{
-	headLine "Режим работы"
-	local CURENT=""
-	local MODE_AUTO="`echo "$CONFIG" | grep -i -A 1 "^# auto.*auto.list$" | grep "NFQWS_EXTRA_ARGS="`"
-	local MODE_LIST="`echo "$CONFIG" | grep -i -A 1 "^# list.*user.list$" | grep "NFQWS_EXTRA_ARGS="`"
-	local MODE_ALL="`echo "$CONFIG" | grep -i -A 1 "^# all.*exclude.list$" | grep "NFQWS_EXTRA_ARGS="`"
-	if [ -n "$MODE_AUTO" -a -n "$MODE_LIST" -a -n "$MODE_ALL" ];then
-		showText "\tNFQWS применяет стратегии ко всем доменам из \"user.list\" и \"auto.list\" (за исключением доменов из \"exclude.list\"). В конфигурации доступны (на выбор) три режима работы:"
-		showText "\t• Авто (используется по умолчанию) - автоматическое определение недоступных доменов (если в течении 60 секунд, домен окажется недоступен трижды)"
-		showText "\t• Список - обработка доменов, только из \"user.list\""
-		showText "\t• Всё - обработка всего трафика, кроме доменов из \"exclude.list\""
-		echo ""
-		if [ -z "`echo "$MODE_AUTO" | grep "#"`" ];then
-			messageBox "Выбран режим: Авто"
-			local STATE1="block"
-			local STATE2=""
-			local STATE3=""
-		elif [ -z "`echo "$MODE_LIST" | grep "#"`" ];then
-			messageBox "Выбран режим: Список"
-			local STATE1=""
-			local STATE2="block"
-			local STATE3=""
-		else
-			messageBox "Выбран режим: Всё"
-			local STATE1=""
-			local STATE2=""
-			local STATE3="block"
-		fi
-		echo ""
-		echo "Выберите режим работы:"
-		echo ""
-		showOption "\t1: Авто" "$STATE1"
-		showOption "\t2: Список" "$STATE2"
-		showOption "\t3: Всё" "$STATE3"
-		echo -e "\t0: Отмена (по умолчанию)"
-		echo ""
-		read -r -p "Ваш выбор:"
-		echo ""
-		if [ "$REPLY" = "1" ];then
-			if [ -z "$STATE1" ];then
-				local CURENT=$MODE_AUTO
-			else
-				messageBox "Этот вариант уже выбран." "\033[91m"
-				echo ""
-				read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-				modeSwitch
-			fi
-		elif [ "$REPLY" = "2" ];then
-			if [ -z "$STATE2" ];then
-				local CURENT=$MODE_LIST
-			else
-				messageBox "Этот вариант уже выбран." "\033[91m"
-				echo ""
-				read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-				modeSwitch
-			fi
-		elif [ "$REPLY" = "3" ];then
-			if [ -z "$STATE3" ];then
-				local CURENT=$MODE_ALL
-			else
-				messageBox "Этот вариант уже выбран." "\033[91m"
-				echo ""
-				read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-				modeSwitch
-			fi
-		fi
-		if [ -n "`echo "$CURENT" | grep "#"`" ];then
-			local CURENT="`echo "$CURENT" | awk '{gsub(/#/,"")}1'`"
-			local CURENT=$(echo "$CURENT" | sed 's:/:\\/:g')
-			CONFIG="`echo "$CONFIG" | awk '{gsub(/^NFQWS_EXTRA_ARGS=/,"#NFQWS_EXTRA_ARGS=")}1' | sed -e "s/#$CURENT/$CURENT/g"`"
-			CHANGES=`expr $CHANGES + 1`
-		fi
-	else
-		messageBox "Один или несколько параметров не обнаружен(ы)." "\033[91m"
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-	fi
-	}
-
-function ipv6Switch
-	{
-	headLine "Обработка IPv6"
-	local CURENT="`echo "$CONFIG" | grep "^IPV6_ENABLED="`"
-	if [ -n "$CURENT" ];then
-		local PARAM="`echo "$CURENT" | awk -F"=" '{print $1}'`"
-		local VALUE="`echo "$CURENT" | awk -F"IPV6_ENABLED=" '{print $2}' | awk '{gsub(/"/,"")}1'`"
-		local NEW=""
-		local SAVE=""
-		if [ "$VALUE" = "1" ];then
-			messageBox "Текущее значение: Обрабатывать"
-			local STATE1="block"
-			local STATE2=""
-		else
-			messageBox "Текущее значение: Не обрабатывать"
-			local STATE1=""
-			local STATE2="block"
-		fi
-		echo ""
-		echo "Обрабатывать IPv6 соединения?"
-		echo ""
-		showOption "\t1: Обрабатывать" "$STATE1"
-		showOption "\t2: Не обрабатывать" "$STATE2"
-		echo -e "\t0: Отмена (по умолчанию)"
-		echo ""
-		read -r -p "Ваш выбор:"
-		echo ""
-		if [ "$REPLY" = "1" ];then
-			if [ -z "$STATE1" ];then
-				local NEW="$PARAM="'1'
-			else
-				messageBox "Этот вариант уже выбран." "\033[91m"
-				echo ""
-				read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-				ipv6Switch
-			fi
-		elif [ "$REPLY" = "2" ];then
-			if [ -z "$STATE2" ];then
-				local NEW="$PARAM="'0'
-			else
-				messageBox "Этот вариант уже выбран." "\033[91m"
-				echo ""
-				read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-				ipv6Switch
-			fi
-		fi
-		if [ ! "$CURENT" = "$NEW" -a -n "$NEW" ];then
-			CONFIG=`echo "$CONFIG" | awk '/^IPV6_ENABLED=/ { $0 = "repl@ce" } 1' | sed "s/repl@ce/$NEW/g"`
-			CHANGES=`expr $CHANGES + 1`
-		fi
-	else
-		messageBox "Параметр не обнаружен." "\033[91m"
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-	fi
-	}
-
-function logSwitch
-	{
-	headLine "Режим вывода данных в Syslog"
-	local CURENT="`echo "$CONFIG" | grep "^LOG_LEVEL="`"
-	if [ -n "$CURENT" ];then
-		local PARAM="`echo "$CURENT" | awk -F"=" '{print $1}'`"
-		local VALUE="`echo "$CURENT" | awk -F"LOG_LEVEL=" '{print $2}' | awk '{gsub(/"/,"")}1'`"
-		local NEW=""
-		local SAVE=""
-		if [ "$VALUE" = "1" ];then
-			messageBox "Текущее значение: Debug"
-			local STATE1="block"
-			local STATE2=""
-		else
-			messageBox "Текущее значение: Silent"
-			local STATE1=""
-			local STATE2="block"
-		fi
-		echo ""
-		echo "Выберите режим вывода в syslig:"
-		echo ""
-		showOption "\t1: Debug" "$STATE1"
-		showOption "\t2: Silent" "$STATE2"
-		echo -e "\t0: Отмена (по умолчанию)"
-		echo ""
-		read -r -p "Ваш выбор:"
-		echo ""
-		if [ "$REPLY" = "1" ];then
-			if [ -z "$STATE1" ];then
-				local NEW="$PARAM="'1'
-			else
-				messageBox "Этот вариант уже выбран." "\033[91m"
-				echo ""
-				read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-				logSwitch
-			fi
-		elif [ "$REPLY" = "2" ];then
-			if [ -z "$STATE2" ];then
-				local NEW="$PARAM="'0'
-			else
-				messageBox "Этот вариант уже выбран." "\033[91m"
-				echo ""
-				read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-				logSwitch
-			fi
-		fi
-		if [ ! "$CURENT" = "$NEW" -a -n "$NEW" ];then
-			CONFIG=`echo "$CONFIG" | awk '/^LOG_LEVEL=/ { $0 = "repl@ce" } 1' | sed "s/repl@ce/$NEW/g"`
-			CHANGES=`expr $CHANGES + 1`
-		fi
-	else
-		messageBox "Параметр не обнаружен." "\033[91m"
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-	fi
-	}
-
-function policySwitch
-	{
-	headLine "Режим работы политики доступа"
-	local CURENT="`echo "$CONFIG" | grep "^POLICY_EXCLUDE="`"
-	if [ -n "$CURENT" ];then
-		local PARAM="`echo "$CURENT" | awk -F"=" '{print $1}'`"
-		local VALUE="`echo "$CURENT" | awk -F"POLICY_EXCLUDE=" '{print $2}' | awk '{gsub(/"/,"")}1'`"
-		local NEW=""
-		local SAVE=""
-		if [ "$VALUE" = "1" ];then
-			messageBox "Политика в режиме исключений"
-			local STATE1="block"
-			local STATE2=""
-		else
-			messageBox "Политика в обычном режиме"
-			local STATE1=""
-			local STATE2="block"
-		fi
-		echo ""
-		echo "Выберите режим работы политики:"
-		echo ""
-		showOption "\t1: Режим исключений" "$STATE1"
-		showOption "\t2: Обычный режим" "$STATE2"
-		echo -e "\t0: Отмена (по умолчанию)"
-		echo ""
-		read -r -p "Ваш выбор:"
-		echo ""
-		if [ "$REPLY" = "1" ];then
-			if [ -z "$STATE1" ];then
-				local NEW="$PARAM="'1'
-			else
-				messageBox "Этот вариант уже выбран." "\033[91m"
-				echo ""
-				read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-				policySwitch
-			fi
-		elif [ "$REPLY" = "2" ];then
-			if [ -z "$STATE2" ];then
-				local NEW="$PARAM="'0'
-			else
-				messageBox "Этот вариант уже выбран." "\033[91m"
-				echo ""
-				read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-				policySwitch
-			fi
-		fi
-		if [ ! "$CURENT" = "$NEW" -a -n "$NEW" ];then
-			CONFIG=`echo "$CONFIG" | awk '/^POLICY_EXCLUDE=/ { $0 = "repl@ce" } 1' | sed "s/repl@ce/$NEW/g"`
-			CHANGES=`expr $CHANGES + 1`
-		fi
-	else
-		messageBox "Параметр не обнаружен." "\033[91m"
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-	fi
-	}
-
-function restartDialogue
-	{
-	showText "\tДля того чтобы изменения вступили в силу - необходимо перезапустить службу NFQWS..."
 	echo ""
-	echo "Перезапустить службу?"
-	echo ""
-	echo -e "\t1: Да"
-	echo -e "\t0: Нет (по умолчанию)"
-	echo ""
-	read -r -p "Ваш выбор:"
-	echo ""
+	LOG=$(/opt/etc/init.d/S51nfqws2 restart 2>&1)
+	if [ -z "`echo -e "$LOG" | grep "Started NFQWS2 service"`" ];then
+		echo -e "$LOG"
+		echo ""
+		pressAnyKey
+	fi
+	}
+
+function acceptChanges
+	{
+	statusPackage
+	if [ -z "$REPLY" ];then
+		showText "\tПрименить изменения?"
+		echo ""
+		option "1" "Да" "" "d"
+		result "Нет"
+		if ! [ "$REPLY" = "0" ];then
+			restartPackage
+		fi
+	else
+		pressAnyKey
+	fi
+	}
+
+function settingsMenu
+	{
+	local VARIABLE="В главное меню"
+	if [ -f "$PACKAGE_CONFIG_FILE" ];then
+		REPLY="`cat "$PACKAGE_CONFIG_FILE"`"
+		REPLY="`echo -e "$REPLY"`"
+		if ! [ "$REPLY" = "$CONFIG" ];then
+			REPLY="true"
+			local VARIABLE="Готово"
+		else
+			REPLY=""
+		fi
+	else
+		REPLY=""
+	fi
+	headLine "Настройки" "" "" "$REPLY" "" ":не сохранены" "$DRK_CLR$WARN_BG"
+	if [ -n "$REPLY" ];then
+		local STATUS0="$REPLY"
+	else
+		local STATUS0=""
+	fi
+	if [ -f "$PACKAGE_CONFIG_BACKUP" -a -z "$STATUS0" ];then
+		local STATUS9=""
+		local CHANGES="до `date -r "$PACKAGE_CONFIG_BACKUP" +'%Y.%m.%d %H:%M:%S'`"
+	else
+		local STATUS9="block"
+		local CHANGES="изменений"
+	fi
+	option "1" "Интерфейсы"
+	option "2" "Режим работы"
+	option "3" "IPv6"
+	option "4" "Порты"
+	option "5" "Политика"
+	option "6" "Лог"
+	option "7" "Конфигурация"
+	option "9" "Откат $CHANGES" "$STATUS9"
+	result "$VARIABLE" "d"
+
 	if [ "$REPLY" = "1" ];then
-		restartNFQWS "compact"
-	fi
-	}
-
-function configSwitches
-	{
-	headLine "Переключаемые параметры"
-	echo -e "\t1: Режим работы"
-	echo -e "\t2: Обработка IPv6"
-	echo -e "\t3: Режим работы политики доступа"
-	echo -e "\t4: Режим вывода данных в Syslog"
-	echo -e "\t0: Назад (по умолчанию)"
-	echo ""
-	read -r -p "Ваш выбор:"
-	if [ "$REPLY" = "1" ];then
-		modeSwitch
+		editSetting "ii" "ISP_INTERFACE=" "" '"' "" " " "" "" "Здесь можно выбрать сетевые интерфейсы провайдеров, на которых будет осуществляться обработка пакетов...\nВведите индекс одного, или нескольких (разделяя их пробелами) сетевых интерфейсов...\nТекущeе значение"
+		settingsMenu
 	elif [ "$REPLY" = "2" ];then
-		ipv6Switch
+		editSetting "l" "NFQWS_EXTRA_ARGS=" "" '"' "\$MODE_AUTO\n\$MODE_ALL\n\$MODE_LIST" "Авто\nВсё\nСписок" "" "" "Здесь можно выбрать один из трёх режимов работы (с доменами и IP-адресами): \"Авто\" - автоматическое определение заблокированных, \"Всё\" - обработка всего трафика (кроме доменов и IP-адресов из списков исключений), \"Список\" - обработка только доменов и IP-адресов из пользовательских списков...\nВыберите режим работы..."
+		settingsMenu
 	elif [ "$REPLY" = "3" ];then
-		policySwitch
+		editSetting "l" "IPV6_ENABLED=" "" '' "1\n0" "Включить\nВыключить" "" "" "Здесь можно управлять функцией обработки IP-адресов версии 6...\nФункция обработки IPv6:"
+		settingsMenu
 	elif [ "$REPLY" = "4" ];then
-		logSwitch
-	fi
-	}
-
-function configAction
-	{
-	headLine "Конфигурация" "hide" "space"
-	if [ -n "$CONFIG" ];then
-		echo -e "$CONFIG" | awk '{sub(/^sp@ce*$/,"")}1'
-	else
-		messageBox "Конфигурация отсутствует." "\033[91m"
-	fi	
-	headLine
-	if [ "$COLUNS" = "80" ];then
-		local SEPARATE=""
-	else
-		local SEPARATE="\n"
-	fi
-	echo ""
-	echo "Доступные действия:"
-	echo ""
-	echo -e "\t1: Сохранить\t\t$SEPARATE\t2: Интерфейс провайдера"
-	echo -e "\t3: HTTP(S) стратегия\t$SEPARATE\t4: QUIC стратегия"
-	echo -e "\t5: UDP стратегия\t$SEPARATE\t6: TCP порты"
-	echo -e "\t7: UDP порты\t\t$SEPARATE\t8: Название политики"
-	echo -e "\t9: Переключаемые параметры$SEPARATE\t0: Отмена (по умолчанию)"
-	echo ""
-	read -r -p "Ваш выбор:"
-	echo ""
-	if [ "$REPLY" = "1" ];then
-		CONFIG=`echo "$CONFIG" | awk '{sub(/^sp@ce/,"")}1'`
-		fileSave "$PROFILE_PATH/nfqws.conf" "$CONFIG"
-		restartDialogue
-	elif [ "$REPLY" = "2" ];then
-		ispInterfaceEdit
-		configAction
-	elif [ "$REPLY" = "3" ];then
-		httpsEdit
-		configAction
-	elif [ "$REPLY" = "4" ];then
-		quicEdit
-		configAction
+		showCentered "Порты" "$ACC_CLR"
+		echo ""
+		option "1" "TCP-порты"
+		option "2" "UDP-порты"
+		result "Назад" "d"
+		if [ "$REPLY" = "1" ];then
+			editSetting "r\t,\tn" "TCP_PORTS=" "" '' "1" "65535" "" "" "Здесь можно указать TCP-порты, на которых будет осуществляться обработка...\nВведите порт...\nТекущее значение"
+		elif [ "$REPLY" = "2" ];then
+			editSetting "r\t,\tn" "UDP_PORTS=" "" '' "1" "65535" "" "" "Здесь можно указать UDP-порты, на которых будет осуществляться обработка...\nВведите порт...\nТекущее значение"
+		fi
+		settingsMenu
 	elif [ "$REPLY" = "5" ];then
-		udpEdit
-		configAction
+		showCentered "Политика" "$ACC_CLR"
+		echo ""
+		option "1" "Имя политики"
+		option "2" "Режим инверсии"
+		result "Назад" "d"
+		if [ "$REPLY" = "1" ];then
+			editSetting "t" "POLICY_NAME=" "" '"' "" "-_.,0-9A-Za-z" "" "" "Здесь можно указать имя политики доступа (Keenetic/Netcraze), с которой будет работать $PACKAGE_NAME...\nВведите имя политики...\nИмя"
+		elif [ "$REPLY" = "2" ];then
+			editSetting "l" "POLICY_EXCLUDE=" "" '' "1\n0" "Включить\nВыключить" "" "" "Здесь можно управлять функцией инверсивного режима политики доступа (если она включена - трафик устройств добавленных в политику обрабатываться не будет, если выключена - будет обрабатываться только трафик устройств из политики)...\nФункция инверсивного режима политики доступа:"
+		fi
+		settingsMenu
 	elif [ "$REPLY" = "6" ];then
-		tcpPortsEdit
-		configAction
+		showCentered "Лог" "$ACC_CLR"
+		echo ""
+		option "1" "Уровень логирования"
+		option "2" "Расположение лога"
+		result "Назад" "d"
+		if [ "$REPLY" = "1" ];then
+			editSetting "l" "LOG_LEVEL=" "" '' "1\n0" "Отладка\nВыключить" "" "" "Здесь можно управлять уровнем логирования\nВыберите уровень логирования..."
+		elif [ "$REPLY" = "2" ];then
+			editSetting "f\t=\tT\t@\td\t@" "LOG_DEBUG_PATH=" "" '"' "" "" "temp" "nfqws2-debug.log" "Здесь можно выбрать папку, в которой будет размещён файл лога...\n\n\nВыберите папку...\nОставить текущую"
+		fi
+		settingsMenu
 	elif [ "$REPLY" = "7" ];then
-		udpPortsEdit
-		configAction
-	elif [ "$REPLY" = "8" ];then
-		policyNameEdit
-		configAction
+		showContent "$CONFIG" "Конфигурация"
+		settingsMenu
 	elif [ "$REPLY" = "9" ];then
-		configSwitches
-		configAction
+		if [ -z "$STATUS9" ];then
+			showText "\tВы можете восстановить конфигурацию в прежнее состояние, текущие настройки будут безвозвратно удалены..."
+			echo ""
+			showText "\tВосстановить конфигурацию?"
+			echo ""
+			option "1" "Да" "" "d"
+			result "Нет"
+			if ! [ "$REPLY" = "0" ];then
+				mv "$PACKAGE_CONFIG_BACKUP" "$PACKAGE_CONFIG_FILE"
+				showMessage "Конфигурация восстановлена." "o"
+				echo ""
+				acceptChanges
+			fi
+		elif [ -n "$STATUS0" ];then
+			showMessage "В конфигурации есть несохранённые изменения." "w"
+			echo ""
+			showText "\tЧтобы откатить конфигурацию до предыдущей версии - нужно выйти из редактора настроек, без сохранения изменений..."
+			echo ""
+			pressAnyKey
+		else
+			showMessage "Отсутствует резервная копия предыдущей конфигурации." "e"
+			echo ""
+			pressAnyKey
+		fi
 	else
-		if [ "$CHANGES" -gt "0" ];then
-			showText "Если продолжить, все внесённые изменения - будут утеряны..."
+		if [ -n "$STATUS0" ];then
+			showText "\tСохранить конфигурацию?"
 			echo ""
-			echo -e "\t1: Продолжить"
-			echo -e "\t0: Назад (по умолчанию)"
-			echo ""
-			read -r -p "Ваш выбор:"
-			echo ""
-			if [ ! "$REPLY" = "1" ];then
-				configAction
+			option "1" "Да" "" "d"
+			result "Нет"
+			if ! [ "$REPLY" = "0" ];then
+				mv "$PACKAGE_CONFIG_FILE" "$PACKAGE_CONFIG_BACKUP"
+				touch "$PACKAGE_CONFIG_BACKUP"
+				echo -e "$CONFIG" > "$PACKAGE_CONFIG_FILE"
+				showMessage "Конфигурация сохранена." "o"
+				echo ""
+				acceptChanges
 			fi
 		fi
 	fi
 	}
 
-function configEditor
+function settings
 	{
-	CONFIG=""
-	CHANGES="0"
-	configGet "$PROFILE_PATH/nfqws.conf"
-	configAction
-	}
-
-function listsGet
-	{
-	if [ "$COLUNS" = "80" ];then
-		local SEPARATE=""
+	if [ -f "$PACKAGE_CONFIG_FILE" ];then
+		CONFIG="`cat "$PACKAGE_CONFIG_FILE"`"
+		CONFIG=`echo -e "$CONFIG"`
+		settingsMenu
 	else
-		local SEPARATE="\n\t   "
+		showMessage "Файл конфигурации не обнаружен." "e"
+		echo ""
+		pressAnyKey
 	fi
-	local LISTS=`ls $PROFILE_PATH | grep ".list$" | awk '{gsub(/.list /,".list\n")}1'`
-	local LISTS=`echo -e "$LISTS" | awk '{print NR"#"$0}'`
-	headLine "Редактор списков"
-	echo "Выберите список для редактирования:"
-	echo ""
-	IFS=$'\n'
-	for LINE in $LISTS;do
-		local LIST_NAME=`echo "$LINE" | awk -F"#" '{print $2}'`
-		echo -e "\t`echo $LINE | awk -F"#" '{print $1": "$2}'` $SEPARATE(`echo "$LISTS_LIST" | grep "^$LIST_NAME=" | awk -F"=" '{print $2}'`)"
-		if [ -n "$SEPARATE" ];then
-			echo ""
-		fi
-	done
-	echo -e "\t0: Отмена (по умолчанию)"
-	echo ""
-	read -r -p "Введите номер списка:"
-	echo ""
-	FILE_NAME=""
-	if [ -z "`echo "$REPLY" | sed 's/[0-9]//g'`" -a ! "$REPLY" = "0" -a ! "$REPLY" = "" ];then
-		FILE_NAME=`echo "$LISTS" | grep "^$REPLY#" | awk -F"#" '{print $2}'`
-		if [ -n "$FILE_NAME" ];then
-			EDIT=`cat $PROFILE_PATH/$FILE_NAME`
-		else
-			EDIT=""
-		fi
-	fi
-echo "e=$EDIT"
 	}
 
-function itemAdd
+function listsMenu
 	{
-	local NEW=""
-	read -r -p "Добавить в список:" ADD_FIELD
-	echo ""
-	if [ -n "$EDIT" ];then
-		local NEW='\n'
+	if [ "$LIST_CHANGES" = "0" ];then
+		headLine "Списки"
+		showText "\tВыберите список для просмотра или редактирования..."
+		echo ""
+	else
+		showText "\tВыберите список для просмотра или редактирования..."
+		echo ""
 	fi
-	if [ -n "$ADD_FIELD" ];then
-		local COINCIDENCE="`echo $EDIT | grep "$ADD_FIELD"`"
-		if [ -n "$COINCIDENCE" ];then
-			messageBox "Обнаружены совпадения."
+	local LIST="`filesList "$PACKAGE_CONFIG_PATH/lists" "*.list" | awk '{print NR": \t"$0}'`"
+	optionList "$LIST"
+	result "В главное меню" "d"
+	REPLY=`echo "$LIST" | grep "^\$REPLY:" | awk -F"\t" '{print $2}'`
+	if [ -n "$REPLY" ];then
+		local LIST_FILE="$REPLY"
+		local LIST="`cat "$PACKAGE_CONFIG_PATH/lists/$LIST_FILE" | awk '{print NR":\t"$0}'`"
+		editList "z\t№№\tt"
+		if ! [ "`echo "$LIST" | cut -f2-`" = "$REPLY" ];then
+			local LIST="$REPLY"
+			showText "\tВ список $LIST_FILE внесены изменения, хотите их сохранить?"
 			echo ""
-			echo "В списке уже есть:"
-			echo ""
-			echo "$COINCIDENCE" | awk -F"\n" '{print "\t• "$1}'
-			echo ""
-			echo "Все равно добавить запись?"
-			echo ""
-			echo -e "\t1: Да (по умолчанию)"
-			echo -e "\t0: Нет"
-			echo ""
-			read -r -p "Ваш выбор:"
-			echo ""
-			if [ ! "$REPLY" = "0" ];then
-				EDIT=$EDIT$NEW$ADD_FIELD
-				local NEW='\n'
-				EDIT=`echo -e "$EDIT"`
+			option "1" "Да" "" "d"
+			result "Нет"
+			if ! [ "$REPLY" = "0" ];then
+				echo -e "$LIST" > "$PACKAGE_CONFIG_PATH/lists/$LIST_FILE"
+				showMessage "Список $LIST_FILE обновлен." "o"
+				LIST_CHANGES="$((LIST_CHANGES + 1))"
+				echo ""
 			fi
-		else
-			EDIT=$EDIT$NEW$ADD_FIELD
-			local NEW='\n'
-			EDIT=`echo -e "$EDIT"`
 		fi
-		itemAdd
+		listsMenu
 	else
-		EDIT=`echo -e "$EDIT"`
-		CHANGES=`expr $CHANGES + 1`
-		listAction
+		if [ "$LIST_CHANGES" -gt "0" ];then
+			acceptChanges
+		fi
 	fi
 	}
 
-function itemDelete
+function installPackage	#1-название пакета	#2-параметр	#3-файл конфигурации
 	{
-	read -r -p "Удалить из списка:" DEL_FIELD
+	mkdir -p /opt/etc/opkg
+	echo "$2" > "$3"
+	installOPKG "$1"
+	}
+
+function getArch
+	{
+	local ARCH=`ndmc -c 'show version' | grep "arch: " | sed -e 's/^[^[:alpha:]]\+//' | awk -F": " '{print $2}'`
+	if [ "$ARCH" = "mips" ];then
+		local HEXDUMP1=`echo -n I | hexdump -o | awk '{ print substr($2,6,1); exit}'`
+		local HEXDUMP2=`hexdump -s 5 -n 1 -C /opt/bin/busybox | awk -F" " '{print $2}'`
+		if [ "$HEXDUMP1" = "1" -a "$HEXDUMP2" = "01" ];then
+			local ARCH="$ARCH`echo 'el'`"
+		fi
+	fi
+	REPLY="$ARCH"
+	}
+
+function selectArch
+	{
+	local STATUS1="" STATUS2="" STATUS3="" STATUS4=""
+	getArch
+	if [ "$REPLY" = "mipsel" ];then
+		local STATUS1="1"
+	elif [ "$REPLY" = "aarch64" ];then
+		local STATUS2="2"
+	elif [ "$REPLY" = "mips" ];then
+		local STATUS3="3"
+	else
+		local STATUS4="4"
+	fi
+	showText "\tВыберите архитектуру ЦП вашего интернет-центра..."
 	echo ""
-	if [ -n "$DEL_FIELD" ];then
-		if [ -n "`echo "$EDIT" | grep "$DEL_FIELD"`" ];then
-			echo "Обнаружены следующие совпадения:"
+	option "1" "mipsel" "" "$STATUS1"
+	option "2" "aarch64" "" "$STATUS2"
+	option "3" "mips" "" "$STATUS3"
+	option "4" "Универсальная версия" "" "$STATUS4"
+	result "Отмена"
+	if [ -z "`echo "01234" | grep "$REPLY"`" -o -z "$REPLY" ];then
+		REPLY="$STATUS1$STATUS2$STATUS3$STATUS4"
+	fi
+	if [ "$REPLY" = "1" ];then
+		installPackage "$PACKAGE_NAME" "src/gz nfqws2-keenetic https://nfqws.github.io/nfqws2-keenetic/mipsel" "/opt/etc/opkg/nfqws2-keenetic.conf"
+	elif [ "$REPLY" = "2" ];then
+		installPackage "$PACKAGE_NAME" "src/gz nfqws2-keenetic https://nfqws.github.io/nfqws2-keenetic/aarch64" "/opt/etc/opkg/nfqws2-keenetic.conf"
+	elif [ "$REPLY" = "3" ];then
+		installPackage "$PACKAGE_NAME" "src/gz nfqws2-keenetic https://nfqws.github.io/nfqws2-keenetic/mips" "/opt/etc/opkg/nfqws2-keenetic.conf"
+	elif [ "$REPLY" = "4" ];then
+		installPackage "$PACKAGE_NAME" "src/gz nfqws2-keenetic https://nfqws.github.io/nfqws2-keenetic/all" "/opt/etc/opkg/nfqws2-keenetic.conf"
+	fi
+	}
+
+function removePackage #1-команда удаления	#3-файл конфигурации	#3-пакет	#3-автоответчик (n/y/выключен)	#4-автоответ
+	{
+	showText "\tВы действительно хотите удалить $4?"
+	echo ""
+	option "1" "Да"
+	result "Нет" "d"
+	if [ "$REPLY" = "1" ];then
+		if [ -n "$3" ];then
+			showText "\tХотите сохранить профиль $4 (настройки, списки и т.п.), на этом устройстве?"
 			echo ""
-			echo "$EDIT" | grep "$DEL_FIELD" | awk -F"\n" '{print "\t• "$1}'
-			echo ""
-			echo "Удалить все совпадения?"
-			echo ""
-			echo -e "\t1: Да"
-			echo -e "\t0: Нет (по умолчанию)"
-			echo ""
-			read -r -p "Ваш выбор:"
-			echo ""
-			if [ "$REPLY" = "1" ];then
-				EDIT=`echo "$EDIT" | grep -v "$DEL_FIELD"`
-				CHANGES=`expr $CHANGES + 1`
-				listAction
+			option "1" "Да" "" "d"
+			result "Нет"
+			if ! [ "$REPLY" = "0" ];then
+				removeOPKG "$1" "" "n"
 			else
-				listAction
+				removeOPKG "$1" "" "y"
 			fi
 		else
-			messageBox "Совпадений не найдено."
-			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-			itemDelete
+			removeOPKG "$1"
 		fi
-	else
-		listAction
-	fi
-	}
-
-function listAction
-	{
-	if [ ! "$FILE_NAME" = "" ];then
-		headLine "Список: $FILE_NAME" "hide" "space"
-		if [ -n "$EDIT" ];then
-			echo -e "$EDIT" | awk -F"\n" '{print "\t"$1}'
-		else
-			messageBox "Список пуст."
-		fi	
-		headLine
-		echo ""
-		echo "Доступные действия:"
-		echo ""
-		echo -e "\t1: Сохранить"
-		echo -e "\t2: Добавить элементы"
-		echo -e "\t3: Удалить элементы"
-		echo -e "\t4: Очистить список"
-		echo -e "\t0: Отмена (по умолчанию)"
-		echo ""
-		read -r -p "Ваш выбор:"
-		echo ""
-		if [ "$REPLY" = "1" ];then
-			fileSave "$PROFILE_PATH/$FILE_NAME" "$EDIT"
-			restartDialogue
-		elif [ "$REPLY" = "2" ];then
-			showText "\tВы можете добавлять строку за строкой... Для завершения процесса добавления - нажмите ввод (оставив поле пустым)."
-			echo ""
-			itemAdd
-		elif [ "$REPLY" = "3" ];then
-			showText "\tВведите последовательность символов,  содержащуюся в строках - которые нужно удалить. Или нажмите ввод (оставив поле пустым), для выхода из диалога удаления..."
-			echo ""
-			itemDelete
-		elif [ "$REPLY" = "4" ];then
-			EDIT=""
-			CHANGES=`expr $CHANGES + 1`
-			listAction
-		else
-			if [ "$CHANGES" -gt "0" ];then
-				showText "Если продолжить, все внесённые изменения - будут утеряны..."
-				echo ""
-				echo -e "\t1: Продолжить"
-				echo -e "\t0: Назад (по умолчанию)"
-				echo ""
-				read -r -p "Ваш выбор:"
-				echo ""
-				if [ ! "$REPLY" = "1" ];then
-					listAction
-				fi
-			fi
+		if [ -f "$2" ];then
+			rm -rf "$2"
+			LOG=$(opkg update 2>&1)
 		fi
 	fi
 	}
 
-function listsEditor
+function oldVercion
 	{
-	FILE_NAME=""
-	EDIT=""
-	CHANGES="0"
-	listsGet
-	listAction
+	showMessage "Установлен NFQWS-keenetic." "w"
+	echo ""
+	showText "\tНа этом устройстве уже установлен пакет NFQWS-keenetic. Для корректной работы $PACKAGE_NAME - нужно удалить старую версию (в процессе удаления, вы сможете сохранить свои настройки и списки)..."
+	echo ""
+	option "1" "Удалить"
+	result "Отмена" "d"
+	if [ "$REPLY" = "1" ];then
+		removePackage "--autoremove NFQWS-keenetic" "/opt/etc/opkg/nfqws-keenetic.conf" "auto" "NFQWS-keenetic"
+	fi
+	if [ -z "`statusOPKG "NFQWS-keenetic"`" ];then
+		packageMenu
+	fi
 	}
 
-function startNFQWS	#1 - скрыть заголовок
+function getUpdateVersion	#1-пакеты (через пробел)
 	{
-	if [ -z "$1" ];then
-		headLine "Запуск службы NFQWS"
-		echo "Запуск службы..."
-		echo ""
-	fi
-	local LOG="`/opt/etc/init.d/S51nfqws start`"
-	statusNFQWS "hide headline"
-	echo "Хотите просмотреть лог?"
-	echo ""
-	echo -e "\t1: Да"
-	echo -e "\t0: Нет (по умолчанию)"
-	echo ""
-	read -r -p "Ваш выбор:"
-	echo ""
-	if [ "$REPLY" = "1" ];then
-		headLine
-		echo "$LOG"
-		headLine
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-	fi
-	}
-	
-function stopNFQWS
-	{
-	headLine "Остановка службы NFQWS"
-	if [ "`/opt/etc/init.d/S51nfqws status`" = "Service NFQWS is running" ];then
-		echo "Остановка службы FNQWS..."
-		echo ""
-		echo "`/opt/etc/init.d/S51nfqws stop`" > /dev/null
-	
-	fi
-	statusNFQWS "no headline"
-	read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-	}
-	
-function restartNFQWS	#1 - компактная версия
-	{
-	if [ -z "$1" ];then
-		if [ "`/opt/etc/init.d/S51nfqws status`" = "Service NFQWS is running" ];then
-			headLine "Перезапуск службы NFQWS"
-			echo "`/opt/etc/init.d/S51nfqws stop`" > /dev/null
-			echo "Перезапуск службы..."
-			echo ""
-		else
-			headLine "Запуск службы NFQWS"
-			echo "Запуск службы..."
-			echo ""
+	local UPDATE="/tmp/`echo "$SCRIPT_NAME" | tr '[:upper:]' '[:lower:]'`.upd"
+	local LIST="`echo "$1" | tr '[:upper:]' '[:lower:]'`"
+	REPLY=""
+	IFS=$' '
+	for PACKAGE in $LIST;do
+		local URL="`cat /opt/etc/opkg/$PACKAGE.conf | awk -F" " '{print $3}'`"
+		local AVAILABLE="`wget -q -O - "$URL" | sed  's/<[^>]*>//g' | grep "^\$PACKAGE.*\.ipk$" | awk -F"_" '{print $2}'`"
+		if [ -n "$AVAILABLE" ];then
+			REPLY="$REPLY\n$PACKAGE - $AVAILABLE"
 		fi
-		startNFQWS "no headline"
-	else
-		headLine "Перезапуск службы NFQWS"
-		echo -e "\tПодождите..."
-		echo "`/opt/etc/init.d/S51nfqws restart`" > /dev/null
-	fi
-	}
-	
-function statusNFQWS	#1 - скрыть заголовок
-	{
-	if [ -z "$1" ];then
-		headLine "Статус службы NFQWS"
-	fi
-	local TEXT="Служба NFQWS - остановлена."
-	if [ -f "/opt/etc/init.d/S51nfqws" ];then
-		if [ "`/opt/etc/init.d/S51nfqws status`" = "Service NFQWS is running" ];then
-			local TEXT="Служба NFQWS - запущена."
-		fi
-	fi
-	if [ -z "$1" ];then
-		echo "$TEXT"
-		echo ""
-		headLine
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-	
-	else
-		messageBox "$TEXT"
-		echo ""
-	fi
-	}
-
-function preInstall
-	{
-	echo "`opkg update`" > /dev/null
-	echo "`opkg install ca-certificates wget-ssl`" > /dev/null
-	echo "`opkg remove wget-nossl`" > /dev/null
-	if [ ! -d "/opt/etc/opkg" ];then
-		mkdir -p /opt/etc/opkg
-	fi
-	}
-
-function nfqwsInstall	#1 - пропустить диалог демонстрации лога
-	{
-	echo "Установка пакета..."
-	echo "`opkg update`" > /dev/null
-	local LOG="`opkg install nfqws-keenetic`"
-	headLine "Установка NFQWS-Keenetic"
-	echo "Установка пакета..."
-	echo ""
-	messageBox "Пакет - установлен."
-	echo ""
-	if [ -z "$1" ];then
-		echo "Хотите просмотреть лог?"
-		echo ""
-		echo -e "\t1: Да"
-		echo -e "\t0: Нет (по умолчанию)"
-		echo ""
-		read -r -p "Ваш выбор:"
-		echo ""
-		if [ "$REPLY" = "1" ];then
-			headLine
-			echo "$LOG"
-			headLine
-			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-		fi
-	fi
-	}
-
-function installMips	#1 - пропустить диалог демонстрации лога
-	{
-	headLine "Установка NFQWS-Keenetic"
-	preInstall
-	echo "src/gz nfqws-keenetic https://anonym-tsk.github.io/nfqws-keenetic/mips" > /opt/etc/opkg/nfqws-keenetic.conf
-	nfqwsInstall "$1"
-	}
-
-function installMipsel	#1 - пропустить диалог демонстрации лога
-	{
-	headLine "Установка NFQWS-Keenetic"
-	preInstall
-	echo "src/gz nfqws-keenetic https://anonym-tsk.github.io/nfqws-keenetic/mipsel" > /opt/etc/opkg/nfqws-keenetic.conf
-	nfqwsInstall "$1"
-	}
-
-function installAarch64	#1 - пропустить диалог демонстрации лога
-	{
-	headLine "Установка NFQWS-Keenetic"
-	preInstall
-	echo "src/gz nfqws-keenetic https://anonym-tsk.github.io/nfqws-keenetic/aarch64" > /opt/etc/opkg/nfqws-keenetic.conf
-	nfqwsInstall "$1"
-	}
-
-function installUniversal	#1 - пропустить диалог демонстрации лога
-	{
-	headLine "Установка NFQWS-Keenetic"
-	preInstall
-	echo "src/gz nfqws-keenetic https://anonym-tsk.github.io/nfqws-keenetic/all" > /opt/etc/opkg/nfqws-keenetic.conf
-	nfqwsInstall "$1"
-	}
-
-function installWeb
-	{
-	headLine "Установка WEB-интерфейса"
-	echo "Установка WEB-интерфейса NFQWS-keenetic..."
-	local LOG="`opkg install nfqws-keenetic-web`"
-	echo ""
-	echo "Хотите просмотреть лог?"
-	echo ""
-	echo -e "\t1: Да"
-	echo -e "\t0: Нет (по умолчанию)"
-	echo ""
-	read -r -p "Ваш выбор:"
-	echo ""
-	if [ "$REPLY" = "1" ];then
-		headLine
-		echo "$LOG"
-		headLine
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-	fi
-	echo ""
-	showText "\tWEEB-интерфейс доступен по адресу:"
-	messageBox "http://`ip addr show br0 | awk -F" |/" '{gsub(/^ +/,"")}/inet /{print $2}'`:90" "\033[94m"
-	showCentered "(можно использовать: CTRL+SHIFT+С - чтобы скопировать выделенный текст)"
-	showText "Для входа в WEB-интерфейс - используйте те-же учётные данные, что и для входа в Entware (по умолчанию это имя пользователя: root и пароль: keenetic). Если WEB-интерфейс не открывается, возможно требуется перезагрузить интернет-центр..."
-	echo ""
-	echo "Выполнить перезагрузку сейчас?"
-	echo ""
-	echo -e "\t1: Да"
-	echo -e "\t0: Нет (по умолчанию)"
-	echo ""
-	read -r -p "Ваш выбор:"
-	echo ""
-	if [ "$REPLY" = "1" ];then
-		showText "\tПосле перезагрузки интернет-центра, вам придётся повторно установить подключение к Entware (чтобы продолжить работу с NK)..."
-		echo ""
-		echo "Перезагрузка..."
-		echo "`ndmc -c 'system reboot'`" > /dev/null
-	fi
-	}
-
-function updateNFQWS
-	{
-	headLine "Обновление NFQWS-Keenetic"
-	echo "`opkg update`" > /dev/null
-	local LOG="`opkg upgrade nfqws-keenetic`"
-	echo ""
-	echo "Хотите просмотреть лог?"
-	echo ""
-	echo -e "\t1: Да"
-	echo -e "\t0: Нет (по умолчанию)"
-	echo ""
-	read -r -p "Ваш выбор:"
-	echo ""
-	if [ "$REPLY" = "1" ];then
-		headLine
-		echo "$LOG"
-		headLine
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-	fi
-	if [ -n "`opkg list-installed | grep "^nfqws-keenetic-web"`" ];then
-		local LOG_WEB="`opkg upgrade nfqws-keenetic-web`"
-		echo ""
-		echo "Хотите просмотреть лог?"
-		echo ""
-		echo -e "\t1: Да"
-		echo -e "\t0: Нет (по умолчанию)"
-		echo ""
-		read -r -p "Ваш выбор:"
-		echo ""
-		if [ "$REPLY" = "1" ];then
-			headLine
-			echo "$LOG_WEB"
-			headLine
-			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-		fi
-	fi
-	UPDATE=`checkForUpdate`
-	}
-
-function uninstallNFQWS
-	{
-	headLine "Удаление NFQWS-Keenetic"
-	echo "Вы точно хотите удалить NFQWS-keenetic?"
-	echo ""
-	echo -e "\t1: Да"
-	echo -e "\t0: Нет (по умолчанию)"
-	echo ""
-	read -r -p "Ваш выбор:"
-	echo ""
-	if [ "$REPLY" = "1" ];then
-		echo "Удалить файлы списков и конфигурации?"
-		echo ""
-		echo -e "\ty: Да"
-		echo -e "\tn: Нет"
-		echo ""
-		echo -n "Ваш выбор:"
-		local LOG="`opkg remove --autoremove nfqws-keenetic-web nfqws-keenetic`" #> /dev/null
-		echo ""
-		if [ -z "`opkg list-installed | grep "nfqws-keenetic"`" ];then
-			messageBox "Пакет - удалён."
-		else
-			messageBox "Не удалось удалить пакет." "\033[91m"
-		fi
-		echo ""
-		echo "Хотите просмотреть лог?"
-		echo ""
-		echo -e "\t1: Да"
-		echo -e "\t0: Нет (по умолчанию)"
-		echo ""
-		read -r -p "Ваш выбор:"
-		echo ""
-		if [ "$REPLY" = "1" ];then
-			headLine
-			echo "$LOG"
-			headLine
-			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-		fi
-	fi
-	}
-
-function installNFQWS
-	{
-	headLine "Установка NFQWS-Keenetic"
-	sysConfigGet
-	messageBox "Текущая архитектура: $ARCH"
-	echo "Выберите архитектуру:"
-	echo ""
-	echo -e "\t1: mips"
-	echo -e "\t2: mipsel"
-	echo -e "\t3: aarch64"
-	echo -e "\t4: Универсальный установщик"
-	echo -e "\t0: Отмена (по умолчанию)"
-	echo ""
-	read -r -p "Ваш выбор:"
-	echo ""
-	if [ "$REPLY" = "1" ];then
-		installMips
-		installMenu
-	elif [ "$REPLY" = "2" ];then
-		installMipsel
-		installMenu
-	elif [ "$REPLY" = "3" ];then
-		installAarch64
-		installMenu
-	elif [ "$REPLY" = "4" ];then
-		installUniversal
-		echo ""
-		installMenu
-	else
-		installMenu
-	fi
-	}
-
-function infoNFQWS
-	{
-	headLine "Сведения о пакете" "hide"
-	opkg info nfqws-keenetic
-	headLine
-	echo ""
-	read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-	}
-
-function findStrategy
-	{
-	headLine "Подбор рабочей стратегии NFQWS"
-	showText "\tДля поиска рабочей стратегии - запустите скрипт и следуйте инструкциям. Подробнее о его работе - можно почитать здесь:"
-	messageBox "https://clck.ru/3F84AQ" "\033[94m"
-	showCentered "(можно использовать: CTRL+SHIFT+С - чтобы скопировать выделенный текст)"
-	echo ""
-	echo -e "\t1: Запустить скрипт"
-	echo -e "\t0: Отмена (по умолчанию)"
-	echo ""
-	read -r -p "Ваш выбор:"
-	echo ""
-	if [ "$REPLY" = "1" ];then
-		echo "`opkg install curl`" > /dev/null
-		echo "`opkg install openssl-util libopenssl`" > /dev/null
-		/bin/sh -c "$(curl -fsSL https://github.com/Anonym-tsk/nfqws-keenetic/raw/master/common/strategy.sh)"
-	fi
-	}
-
-function zyxelSetupBegining
-	{
-	headLine "Начало настройки"
-	showText "\tВ KeeneticOS версии 2.x - отсутствуют компоненты: \"Прокси-сервер DNS-over-TLS\" (DoT) и \"Прокси-сервер DNS-over-HTTPS\" (DoH). В качестве альтернативы - будет установлен и настроен пакет \"dnscrypt-proxy2\"."
-	echo ""
-	showText "\tПеред тем как продолжить, настоятельно рекомендуется сохранить резервную копию настроек интернет-центра..." "\033[91m"
-	echo ""
-	echo -e "\t1: Продолжить"
-	echo -e "\t0: Отмена (по умолчанию)"
-	echo ""
-	read -r -p "Ваш выбор:"
-	echo ""
-	if [ "$REPLY" = "1" ];then
-		echo "Установка и настройка dnscrypt-proxy2..."
-		echo "`opkg update`" > /dev/null
-		echo "`opkg install dnscrypt-proxy2`" > /dev/null
-		echo "`opkg install ca-certificates cron iptables`" > /dev/null
-		local FILE=`cat $DNSCRYPT | awk '{gsub(/^listen_addresses = \[.127.0.0.1:53.\]/,"listen_addresses = [|0.0.0.0:53|]")}1' | tr "|" "'"`
-		echo -e "$FILE" > $DNSCRYPT
-		echo "`/opt/etc/init.d/S09dnscrypt-proxy2 start`" > /dev/null
-		echo ""
-		showText "\tНа следующем шаге, встроенный DNS-прокси - будет заменён \"dnscrypt-proxy2\" и соединение с интернет-центром будет разорвано... После восстановления соединения, необходимо снова подключиться к Entware и повторно запустить: \"Дополнительно/Донастройка ZyXel Keenetic\"."
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-		echo "`ndmc -c 'opkg dns-override'`" > /dev/null
-		echo "`ndmc -c 'system configuration save'	`" > /dev/null
-	fi
-	}
-	
-function zyxelSetupEnding
-	{
-	headLine "Завершение настройки"
-	local DNS=`ip addr show br0 | awk -F" |/" '{gsub(/^ +/,"")}/inet /{print $2}'`
-	echo "Настройка DNS в интерфейсе(ах) провайдера..."
-	local ISP_INTERFACE="`cat "$PROFILE_PATH/nfqws.conf" | grep "^ISP_INTERFACE=" | awk -F"ISP_INTERFACE=" '{print $2}' | awk '{gsub(/"/,"")}1' | awk '{gsub(/ /,"\n")}1'`"
-	local SHOW_INTERFACE=`ndmc -c show interface | grep "address: \|id: "`
-	IFS=$'\n'
-	for LINE in $ISP_INTERFACE;do
-		local IP_ADDR_SHOW=`ip addr show $LINE | awk -F" |/" '{gsub(/^ +/,"")}/inet /{print $2}'`
-		local INTERFACE=`echo "$SHOW_INTERFACE" | grep -i -B 1 "$IP_ADDR_SHOW" | grep "id: " | awk -F": " '{print $2}'`
-		echo "`ndmc -c ip name-server $DNS '""' on $INTERFACE`" > /dev/null
 	done
-	echo "`ndmc -c 'system configuration save'	`" > /dev/null
-	echo ""
-	echo "Настройка DNS в домашнем сегменте..."
-	echo "`ndmc -c ip dhcp pool _WEBADMIN dns-server $DNS`" > /dev/null
-	echo "`ndmc -c 'system configuration save'	`" > /dev/null
-	echo ""
-	showText "\t(В веб-конфигураторе) интернет-центра:"
-	messageBox "http://$DNS" "\033[94m"
-	showCentered "(можно использовать: CTRL+SHIFT+С - чтобы скопировать выделенный текст)"
-	showText "открываем: \"Сетевые правила/Интернет-фильтр\", в таблице: \"Серверы DNS\" - должны присутствовать только записи с IP-адресом интернет-центра ($DNS)."
-	echo ""
-	showText "\tЕсли для доступа к интернет, вы не используете серверы авторизации (с указанием внутренних доменных имён из сети провайдера: L2TP, PPPoE, IPoE и т.п.), все остальные записи - нужно удалить. Если такие серверы авторизации используются - удаление DNS провайдера из таблицы - может лишить вас возможности подключение к интернету..."
-	rm -rf /opt/etc/ndm/netfilter.d/10-ClientDNS-Redirect.sh
-	echo -e '#!/bin/sh\n[ "$type" == "ip6tables" ] && exit 0\n[ "$table" != "nat" ] && exit 0\n[ -z "$(iptables -nvL -t nat | grep "to:'$DNS':53")" ] && iptables -t nat -I PREROUTING -p udp --dport 53 -j DNAT --to-destination '$DNS':53\nexit 0' >> /opt/etc/ndm/netfilter.d/10-ClientDNS-Redirect.sh
-	chmod +x /opt/etc/ndm/netfilter.d/10-ClientDNS-Redirect.sh
-	echo ""
-	showText "\tТеперь нужно перезагрузить интернет-центр."
-	echo ""
-	echo "Хотите сделать это прямо сейчас?"
-	echo ""
-	echo -e "\t1: Да (по умолчанию)"
-	echo -e "\t0: Нет, я сделаю это самостоятельно"
-	echo ""
-	read -r -p "Ваш выбор:"
-	if [ ! "$REPLY" = "0" ];then
-		echo "`ndmc -c system reboot`" > /dev/null
-		exit
-	fi
+	echo -e "$REPLY" | grep -v '^$' | tee "$UPDATE_VERSIONS"
+	touch "$UPDATE_VERSIONS"
 	}
 
-function zyxelSetup
+function checkForUpdate	#1-пакеты (через пробел)
 	{
-	if [ -n "`opkg list-installed | grep "dnscrypt-proxy2"`" ];then
-		local STATE1="installed"
-	else
-		local STATE1=""
-	fi
-	if [ -f "$DNSCRYPT" ];then
-		if [ "`cat "$DNSCRYPT" | grep -c "listen_addresses = \['0.0.0.0:53'\]"`" -gt "0" ];then
-			local STATE2="found"
-		else
-			local STATE2=""
+	if [ -f "$UPDATE_VERSIONS" ];then
+		if ! [ "`date -r "$UPDATE_VERSIONS" +'%Y.%m.%d-%H'`" = "`date +'%Y.%m.%d-%H'`" ];then
+			$0 -U  >/dev/null 2>&1 &
 		fi
-	else
-		local STATE2=""
-	fi
-	if [ -z "$STATE1" -o -z "$STATE2" ];then
-		zyxelSetupBegining
-	else
-		headLine "Донастройка ZyXel Keenetic"
-		showText "\tПохоже, вы снова подключились к Entware  (после разрыва соединения с интернет-центром). Если это так - выберите: \"Продолжить настройку\". В противном случае - вы можете начать процесс сначала..."
-		echo ""
-		echo -e "\t1: Начать настройку сначала"
-		echo -e "\t2: Продолжить настройку"
-		echo -e "\t0: Отмена (по умолчанию)"
-		echo ""
-		read -r -p "Ваш выбор:"
-		echo ""
-		if [ "$REPLY" = "1" ];then
-			zyxelSetupBegining
-		elif [ "$REPLY" = "2" ];then
-			zyxelSetupEnding
-		fi
-	fi
-	}
-
-function policyCreate
-	{
-	local POLICY_NAME="`cat "$PROFILE_PATH/nfqws.conf" | grep "^POLICY_NAME=" | awk -F"POLICY_NAME=" '{print $2}' | awk '{gsub(/"/,"")}1'`"
-	if [ -z "$POLICY_NAME" ];then
-		messageBox "Имя политики - не задано." "\033[91m"
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-	else
-		local SHOW_IP_POLICY="`ndmc -c show ip policy`"
-		if [ -z "`echo "$SHOW_IP_POLICY" | grep "description = $POLICY_NAME"`" ];then
-			echo "Создание политики доступа..."
-			local NUM=0
-			while [ -n "`echo "$SHOW_IP_POLICY" | grep "Policy$NUM"`" ];do
-				local NUM=`expr $NUM + 1`
+		local UPDATE="`cat "$UPDATE_VERSIONS"`"
+		if [ -n "$UPDATE" ];then
+			local LIST="`echo " $1" | tr '[:upper:]' '[:lower:]' | sed 's/ $//g;s/ /|^/g;s/^|//g'`"
+			local LIST="`opkg list-installed | grep -E "$LIST"`"
+			local SEPARATOP=": "
+			REPLY=""
+			IFS=$'\n'
+			for PACKAGE in $LIST;do
+				local CURENT="`echo "$PACKAGE" | awk -F" - " '{print $1}'`"
+				local AVAILABLE="`echo "$UPDATE" | grep "^\$CURENT" | awk -F" - " '{print $2}'`"
+				if ! [ -z "$AVAILABLE" -o "$AVAILABLE" = "`echo "$PACKAGE" | awk -F" - " '{print $2}'`" ];then
+					REPLY="$REPLY$SEPARATOP`echo "$UPDATE" | grep "^\$CURENT"`"
+					local SEPARATOP=", "
+				fi
 			done
-			local POLICY="Policy$NUM"
-			echo "`ndmc -c ip policy $POLICY`" > /dev/null
-			echo ""
-			echo "Изменение имени политики доступа..."
-			echo "`ndmc -c ip policy $POLICY description $POLICY_NAME`" > /dev/null
-			echo ""
-		else
-			local POLICY="`echo "$SHOW_IP_POLICY" | grep "description = $POLICY_NAME" | awk -F" = " '{print $2}' | awk -F", " '{print $1}'`"
-		fi
-		echo "Добавление интерфейса(ов) провайдера..."
-		local ISP_INTERFACE="`cat "$PROFILE_PATH/nfqws.conf" | grep "^ISP_INTERFACE=" | awk -F"ISP_INTERFACE=" '{print $2}' | awk '{gsub(/"/,"")}1' | awk '{gsub(/ /,"\n")}1'`"
-		local ISP_INTERFACE=`echo -e "$ISP_INTERFACE" | awk '{print NR"\t"$0}' | sort -t\t -rk1 | awk -F"\t" '{print $2}'`
-		local SHOW_INTERFACE=`ndmc -c show interface | grep "address: \|id: "`
-		IFS=$'\n'
-		for LINE in $ISP_INTERFACE;do
-			local IP_ADDR_SHOW=`ip addr show $LINE | awk -F" |/" '{gsub(/^ +/,"")}/inet /{print $2}'`
-			local INTERFACE=`echo "$SHOW_INTERFACE" | grep -i -B 1 "$IP_ADDR_SHOW" | grep "id: " | awk -F": " '{print $2}'`
-			echo "`ndmc -c ip policy $POLICY permit global $INTERFACE order 0`" > /dev/null
-		done
-		echo ""
-		echo "Сохранение настроек..."
-		echo "`ndmc -c system configuration save`" > /dev/null
-		echo ""
-		messageBox "Политика: $POLICY_NAME - настроена."
-		echo ""
-		restartDialogue
-	fi
-	}
-
-function policyDelete
-	{
-	local POLICY_NAME="`cat "$PROFILE_PATH/nfqws.conf" | grep "^POLICY_NAME=" | awk -F"POLICY_NAME=" '{print $2}' | awk '{gsub(/"/,"")}1'`"
-	local SHOW_IP_POLICY="`ndmc -c show ip policy`"
-	if [ -n "`echo "$SHOW_IP_POLICY" | grep "description = $POLICY_NAME"`" ];then
-		local POLICY="`echo "$SHOW_IP_POLICY" | grep "description = $POLICY_NAME" | awk -F" = " '{print $2}' | awk -F", " '{print $1}'`"
-		echo "Удаление политики..."
-		echo "`ndmc -c no ip policy $POLICY`" > /dev/null
-		echo ""
-		echo "Сохранение настроек..."
-		echo "`ndmc -c system configuration save`" > /dev/null
-		echo ""
-		messageBox "Политика: $POLICY_NAME - удалена."
-		echo ""
-		restartDialogue
-	else
-		echo ""
-		messageBox "Политика $POLICY_NAME - не найдена." "\033[91m"
-		echo ""
-	fi
-	}
-
-function policySetup
-	{
-	headLine "Настройка политики доступа"
-	showText "\tПолитика доступа, позволяет распространить обработку пакетов, только на устройства/сегменты - добавленные в неё. Или наоборот - оградить их от обработки пакетов. Настроить имя политики и режим её работы - можно в \"Редакторе конфигурации\"..."
-	echo ""
-	local POLICY_NAME="`cat "$PROFILE_PATH/nfqws.conf" | grep "^POLICY_NAME=" | awk -F"POLICY_NAME=" '{print $2}' | awk '{gsub(/"/,"")}1'`"
-	local POLICY_EXCLUDE="`cat "$PROFILE_PATH/nfqws.conf" | grep "^POLICY_EXCLUDE=" | awk -F"POLICY_EXCLUDE=" '{print $2}'`"
-	local SHOW_IP_POLICY="`ndmc -c show ip policy`"
-	if [ -n "`echo "$SHOW_IP_POLICY" | grep "description = $POLICY_NAME"`" ];then
-		if [ "$POLICY_EXCLUDE" = "0" ];then
-			local MODE="обычный режим"
-		else
-			local MODE="режим исключений"
-		fi
-		messageBox "Политика: $POLICY_NAME ($MODE)"
-		local STATE=""
-	else
-		messageBox "Политика доступа - не настроена."
-		local STATE="block"
-	fi
-	echo ""
-	echo -e "\t1: Создать/настроить политику"
-	showOption "\t2: Удалить политику" "$STATE"
-	echo -e "\t0: Отмена (по умолчанию)"
-	echo ""
-	read -r -p "Ваш выбор:"
-	echo ""
-	if [ "$REPLY" = "1" ];then
-		policyCreate
-	elif [ "$REPLY" = "2" ];then
-		if [ -z "$STATE" ];then
-			policyDelete
-		else
-			messageBox "Политика отсутствует." "\033[91m"
-			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-			policySetup
-		fi
-	fi
-	}
-
-function buttonSelect	#1 - без сохранения
-	{
-	local FLAG=$1
-	echo "Выберите кнопку:"
-	echo ""
-	echo -e "\t1: Кнопка WiFi"
-	echo -e "\t2: Кнопка FN1"
-	echo -e "\t3: Кнопка FN2"
-	showOption "\t4: Сохранить конфигурацию" "$FLAG"
-	echo -e "\t0: Отмена (по умолчанию)"
-	echo ""
-	read -r -p "Ваш выбор:" BUTTON_NAME
-	echo ""
-	if [ "$BUTTON_NAME" = "1" -o "$BUTTON_NAME" = "2" -o "$BUTTON_NAME" = "3" ];then
-		echo "Выберите тип нажатия:"
-		echo ""
-		echo -e "\t1: Короткое нажатие"
-		echo -e "\t2: Двойное нажатие"
-		echo -e "\t3: Длинное нажатие"
-		echo -e "\t0: Отмена (по умолчанию)"
-		echo ""
-		read -r -p "Ваш выбор:" TYPE
-		echo ""
-		if [ "$TYPE" = "1" -o "$TYPE" = "2" -o "$TYPE" = "3" ];then
-			echo "Выберите действие:"
-			echo ""
-			echo -e "\t1: Запустить службу NFQWS"
-			echo -e "\t2: Остановить службу NFQWS"
-			echo -e "\t3: Перезапустить службу NFQWS"
-			echo -e "\t0: Отмена (по умолчанию)"
-			echo ""
-			read -r -p "Ваш выбор:" ACTION
-			echo ""
-			if [ "$ACTION" = "1" -o "$ACTION" = "2" -o "$ACTION" = "3" ];then
-				if [ "$ACTION" = "1" ];then
-					ACTION='/opt/etc/init.d/S51nfqws start'
-				elif [ "$ACTION" = "2" ];then
-					ACTION='/opt/etc/init.d/S51nfqws stop'
+			if [ -n "$REPLY" ];then
+				if [ -n "`echo "$REPLY" | grep ","`" ];then
+					REPLY="Доступны обновления$REPLY."
 				else
-					ACTION='/opt/etc/init.d/S51nfqws restart'
+					REPLY="Доступно обновление$REPLY."
 				fi
-				if [ "$TYPE" = "1" ];then
-					TYPE='click'
-				elif [ "$TYPE" = "2" ];then
-					TYPE='double-click'
-				else
-					TYPE='hold'
-				fi
-				if [ "$BUTTON_NAME" = "1" ];then
-					if [ -n "`echo $WLAN | grep "$TYPE"`" ];then
-						local LIST="`echo -e "$WLAN" | awk '{gsub(/\t/,"\n")}1' | grep -v "^$TYPE"`"
-						WLAN=""
-						IFS=$'\n'
-						for LINE in $LIST;do
-							WLAN=$WLAN$LINE'\t'
-						done
-					fi
-					WLAN=$WLAN$TYPE'&'$ACTION'\t'
-				elif [ "$BUTTON_NAME" = "2" ];then
-					if [ -n "`echo $FN1 | grep "$TYPE"`" ];then
-						local LIST="`echo -e "$FN1" | awk '{gsub(/\t/,"\n")}1' | grep -v "^$TYPE"`"
-						FN1=""
-						IFS=$'\n'
-						for LINE in $LIST;do
-							FN1=$FN1$LINE'\t'
-						done
-					fi
-					FN1=$FN1$TYPE'&'$ACTION'\t'
-				else
-					if [ -n "`echo $FN2 | grep "$TYPE"`" ];then
-						local LIST="`echo -e "$FN2" | awk '{gsub(/\t/,"\n")}1' | grep -v "^$TYPE"`"
-						FN2=""
-						IFS=$'\n'
-						for LINE in $LIST;do
-							FN2=$FN2$LINE'\t'
-						done
-					fi
-					FN2=$FN2$TYPE'&'$ACTION'\t'
-				fi
+			showMessage "`echo "$REPLY"`" "w"
 				echo ""
-				messageBox "Настройка - добавлена в конфигурацию."
-				echo ""
-				read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-				headLine "Новая конфигурация"
-				buttonSelect
 			fi
 		fi
-	elif [ "$BUTTON_NAME" = "4" ];then
-		if [ -n "$FLAG" ];then
-			messageBox "Отсутствуют данные для сохранения." "\033[91m"
-			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-			headLine "Новая конфигурация"
-			buttonSelect "no save"
-		fi
 	else
-		WLAN=""
-		FN1=""
-		FN2=""
+		$0 -U  >/dev/null 2>&1 &
 	fi
 	}
 
-function buttonConfig
+function packageMenu
 	{
-	headLine "Новая конфигурация"
-	WLAN=""
-	FN1=""
-	FN2=""
-	showText "\tНекоторые кнопки (из списка ниже) могут физически отсутствовать на вашей модели интернет-центра. Пожалуйста выбирайте только те кнопки - которые есть на устройстве..."
-	echo ""
-	buttonSelect "no save"
-	if [ -n "$WLAN" -o -n "$FN1" -o -n "$FN2" ];then
-		local TEXT='#!/opt/bin/sh\n\ncase "$button" in\n\n'
-		if [ -n "$WLAN" ];then
-			local TEXT=$TEXT'"WLAN")\n\tcase "$action" in\n'
-			WLAN=`echo -e $WLAN`
-			IFS=$'\t'
-			for LINE in $WLAN;do
-				local TEXT=$TEXT'\t"'`echo $LINE | awk '{gsub(/&/,"\")\n\t\t")}1'`'\n\t\t;;\n' 
-			done
-			local TEXT=$TEXT'\tesac\n\t;;\n'
-		fi
-		if [ -n "$FN1" ];then
-			local TEXT=$TEXT'"FN1")\n\tcase "$action" in\n'
-			FN1=`echo -e $FN1`
-			IFS=$'\t'
-			for LINE in $FN1;do
-				local TEXT=$TEXT'\t"'`echo $LINE | awk '{gsub(/&/,"\")\n\t\t")}1'`'\n\t\t;;\n' 
-			done
-			local TEXT=$TEXT'\tesac\n\t;;\n'
-		fi
-		if [ -n "$FN2" ];then
-			local TEXT=$TEXT'"FN2")\n\tcase "$action" in\n'
-			FN2=`echo -e $FN2`
-			IFS=$'\t'
-			for LINE in $FN2;do
-				local TEXT=$TEXT'\t"'`echo $LINE | awk '{gsub(/&/,"\")\n\t\t")}1'`'\n\t\t;;\n' 
-			done
-			local TEXT=$TEXT'\tesac\n\t;;\n'
-		fi
-		local TEXT=$TEXT'esac'
-		echo -e "$TEXT" > "$BUTTON_FILE"
-		messageBox "Новая конфигурация - сохранена."
-		echo ""
-		showText "\tНе забудьте выбрать вариант \"OPKG - Запуск скриптов button.d\" в веб-конфигураторе интернет-центра (Управление/Параметры системы/Назначение кнопок и индикаторов интернет-центра) для всех кнопок и типов нажатия - которые вы настроили..."
-		echo ""
-	else
-		messageBox "Создания новой конфигурации - прервано."
-		echo ""
-		WLAN=""
-		FN1=""
-		FN2=""
+	if [ -n "`statusOPKG "NFQWS-keenetic"`" ];then
+		oldVercion
+		mainMenu
+		exit
+	elif [ -f "/opt/etc/opkg/nfqws-keenetic.conf" ];then
+		rm -rf "/opt/etc/opkg/nfqws-keenetic.conf"
+		LOG=$(opkg update 2>&1)
 	fi
-	read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-	}
-
-function buttonSetup
-	{
-	headLine "Настройка кнопок"
-	showText "\tМожно управлять некоторыми функциями NFQWS-keenetic, при помощи аппаратных кнопок на интернет-центре..."
-	echo ""
-	if [ -f "$BUTTON_FILE" ];then
-		messageBox "Конфигурация кнопок уже используется."
-		local STATE=""
+	local STATUS3="`checkForUpdate "$PACKAGE_NAME"`"
+	local STATUS4="`checkForUpdate "nfqws-keenetic-web"`"
+	if [ -n "$STATUS3" -a -n "$STATUS4" ];then
+		local STATUS0="доступны обновления"
 	else
-		messageBox "Конфигурация не задана."
-		local STATE="block"
+		local STATUS0="доступно обновление"
 	fi
-	echo ""
-	echo -e "\t1: Новая конфигурация"
-	showOption  "\t2: Сброс конфигурации" "$STATE"
-	echo -e "\t0: Отмена (по умолчанию)"
-	echo ""
-	read -r -p "Ваш выбор:"
-	echo ""
+	headLine "Управление пакетами" "" "" "$STATUS3$STATUS4" "" ":$STATUS0" "$DRK_CLR$WARN_BG"
+	if [ -n "`statusOPKG "$PACKAGE_NAME"`" ];then
+		local STATUS1="block"
+		local STATUS5=""
+	else
+		local STATUS1=""
+		local STATUS5="block"
+	fi
+	if [ -n "`statusOPKG "nfqws-keenetic-web"`" ];then
+		local STATUS2="block"
+		local STATUS6=""
+	else
+		local STATUS2=""
+		local STATUS6="block"
+	fi
+	if [ -n "$STATUS3" -a -n "$STATUS1" ];then
+		local STATUS3=""
+	else
+		local STATUS3="block"
+	fi
+	if [ -n "$STATUS4" -a -n "$STATUS2" ];then
+		local STATUS4=""
+	else
+		local STATUS4="block"
+	fi
+	option "1" "Установка $PACKAGE_NAME" "$STATUS1"
+	option "2" "Установка веб-интерфейса" "$STATUS2"
+	option "3" "Обновление $PACKAGE_NAME" "$STATUS3"
+	option "4" "Обновление веб-интерфейса" "$STATUS4"
+	option "5" "Удаление $PACKAGE_NAME" "$STATUS5"
+	option "6" "Удаление веб-интерфейса" "$STATUS6"
+	option "7" "Информация о $PACKAGE_NAME" "$STATUS5"
+	option "8" "Информация о веб-интерфейсе" "$STATUS6"
+	option "9" "Удаление $SCRIPT_NAME"
+	result "В главное меню" "d"
 	if [ "$REPLY" = "1" ];then
-		buttonConfig
-		buttonSetup
-	elif [ "$REPLY" = "2" ];then
-		if [ -z "$STATE" ];then
-			rm -rf $BUTTON_FILE
-			messageBox "Файл конфигурации кнопок - удалён."
+		if [ -z "$STATUS1" ];then
+			selectArch
 		else
-			messageBox "Файл конфигурации кнопок отсутствует." "\033[91m"
-		fi
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-		buttonSetup
-	fi
-	}
-
-function installMenu
-	{
-	headLine "Управление пакетом"
-	if [ -n "`opkg list-installed | grep "nfqws-keenetic"`" ];then
-		local STATE1="block"
-		local STATE3=""
-	else
-		local STATE1=""
-		local STATE3="block"
-	fi
-	if [ -n "`opkg list-installed | grep "nfqws-keenetic-web"`" ];then
-		local STATE2="block"
-	else
-		local STATE2=""
-	fi
-	showOption "\t1: Установить NFQWS-Keenetic" "$STATE1"
-	showOption "\t2: Установить WEB-интерфейс" "$STATE2"
-	showOption "\t3: Обновить..." "$STATE3"
-	showOption "\t4: Сведения о пакете" "$STATE3"
-	showOption "\t9: Удалить NFQWS-Keenetic" "$STATE3"
-	echo -e "\t0: В главное меню (по умолчанию)"
-	echo ""
-	read -r -p "Ваш выбор:"
-	echo ""
-	if [ "$REPLY" = "1" ];then
-		if [ -z "$STATE1" ];then
-			installNFQWS
-		else
-			messageBox "Пакет NFQWS-keenetic - уже установлен." "\033[91m"
+			showMessage "Пакет $PACKAGE_NAME уже установлен." "e"
 			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
+			pressAnyKey
 		fi
-		installMenu
+		packageMenu
 	elif [ "$REPLY" = "2" ];then
-		if [ -z "$STATE2" ];then
-			installWeb
+		if [ -z "$STATUS2" ];then
+			installPackage "NFQWS-keenetic-Web" "src/gz nfqws-keenetic-web https://nfqws.github.io/nfqws-keenetic-web/all" "/opt/etc/opkg/nfqws-keenetic-web.conf"
+			if [ -n "`statusOPKG "NFQWS-keenetic-web"`" ];then
+				showText "\tВеб-интерфейс установлен, и доступен по адресу:"
+				showMessage "`echo "$LOG" | grep 'Web Interface installed:' | awk -F": " '{print $2}'`" "u"
+				showText "Для входа в веб-интерфейс, используйте имя пользователя: root и пароль, с которым вы подключаетесь к entware (по умолчанию это: keenetic)..."
+				echo ""
+				pressAnyKey
+			fi
 		else
-			messageBox "WEB-интерфейс - уже установлен." "\033[91m"
+			showMessage "Веб-интерфейс уже установлен." "e"
 			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
+			pressAnyKey
 		fi
-		installMenu
+		packageMenu
 	elif [ "$REPLY" = "3" ];then
-		if [ -z "$STATE3" ];then
-			updateNFQWS
+		if [ -z "$STATUS5" ];then
+			updateOPKG "$PACKAGE_NAME"
 		else
-			messageBox "Пакет NFQWS-keenetic - отсутствует" "\033[91m"
+			showMessage "Нет доступных обновлений $PACKAGE_NAME." "e"
 			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
+			pressAnyKey
 		fi
-		installMenu
+		packageMenu
+	
 	elif [ "$REPLY" = "4" ];then
-		if [ -z "$STATE3" ];then
-			infoNFQWS
+		if [ -z "$STATUS5" ];then
+			updateOPKG "NFQWS-keenetic-Web"
 		else
-			messageBox "Пакет NFQWS-keenetic - отсутствует." "\033[91m"
+			showMessage "Нет доступных обновлений веб-интерфейса." "e"
 			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
+			pressAnyKey
 		fi
-		installMenu
-	elif [ "$REPLY" = "9" ];then
-		if [ -z "$STATE3" ];then
-			uninstallNFQWS
-		else
-			messageBox "Пакет NFQWS-keenetic - отсутствует." "\033[91m"
-			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-		fi
-		installMenu
-	fi
-	}
-
-function extraMenu
-	{
-	headLine "Дополнительно"
-	if [ -d "$BACKUP" ];then
-		local STATE1=""
-	else
-		local STATE1="block"
-	fi
-	if [ -n "`opkg list-installed | grep "nfqws-keenetic"`" ];then
-		local STATE2=""
-	else
-		local STATE2="block"
-	fi
-	echo -e "\t1: Резервное копирование профиля"
-	showOption "\t2: Удаление резервные копии" "$STATE1"
-	showOption "\t3: Политика доступа" "$STATE2"
-	echo -e "\t4: Настройка кнопок"
-	echo -e "\t5: Донастройка ZyXel Keenetic"
-	showOption "\t6: Подбор стратегии NFQWS" "$STATE2"
-	echo -e "\t9: Удаление NK"
-	echo -e "\t0: В главное меню (по умолчанию)"
-	echo ""
-	read -r -p "Ваш выбор:"
-	echo ""
-	if [ "$REPLY" = "1" ];then
-		backUp
-		extraMenu
-	elif [ "$REPLY" = "2" ];then
-		if [ -z "$STATE3" -a -d $BACKUP ];then
-			rm -rf $BACKUP
-			messageBpx "Резервные копии - удалены."
-		else
-			messageBox "Резервные копии - отсутствуют." "\033[91m"
-		fi
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-		extraMenu
-	elif [ "$REPLY" = "3" ];then
-		if [ -z "$STATE2" -a -d $BACKUP ];then
-			policySetup
-		else
-			messageBox "Пакет NFQWS-keenetic - отсутствуют." "\033[91m"
-			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-		fi
-		extraMenu
-	elif [ "$REPLY" = "4" ];then
-		buttonSetup
-		extraMenu
+		packageMenu
+	
 	elif [ "$REPLY" = "5" ];then
-		zyxelSetup
-		extraMenu
+		if [ -z "$STATUS5" ];then
+			removePackage "--autoremove $PACKAGE_NAME" "/opt/etc/opkg/nfqws2-keenetic.conf" "auto" "$PACKAGE_NAME"
+		else
+			showMessage "Пакет $PACKAGE_NAME не установлен." "e"
+			echo ""
+			pressAnyKey
+		fi
+		packageMenu
 	elif [ "$REPLY" = "6" ];then
-		findStrategy
-		extraMenu
+		if [ -z "$STATUS6" ];then
+			removePackage "--autoremove NFQWS-keenetic-Web" "/opt/etc/opkg/nfqws-keenetic-web.conf" "" "веб-интерфейс"
+		else
+			showMessage "Веб-интерфейс не установлен." "e"
+			echo ""
+			pressAnyKey
+		fi
+		packageMenu
+	elif [ "$REPLY" = "7" ];then
+		if [ -z "$STATUS5" ];then
+			showContent "`opkg info nfqws2-keenetic`" "Информация о $PACKAGE_NAME"
+		else
+			showMessage "Пакет $PACKAGE_NAME не установлен." "e"
+			echo ""
+			pressAnyKey
+		fi
+		packageMenu
+	elif [ "$REPLY" = "8" ];then
+		if [ -z "$STATUS6" ];then
+			showContent "`opkg info nfqws-keenetic-web`" "Информация о веб-интерфейсе"
+		else
+			showMessage "Веб-интерфейс не установлен." "e"
+			echo ""
+			pressAnyKey
+		fi
+		packageMenu
 	elif [ "$REPLY" = "9" ];then
-		headLine "Удаление NK"
-		echo "Вы действительно хотите удалить NK?"
+		showText "\tвы действительно хотите удалить $SCRIPT_NAME?"
 		echo ""
-		echo -e "\t1: Да"
-		echo -e "\t0: Нет (по умолчанию)"
-		echo ""
-		read -r -p "Ваш выбор:"
-		echo ""
+		option "1" "Да"
+		result ""Нет "d"
 		if [ "$REPLY" = "1" ];then
-			if [ -d $BACKUP ];then
-				echo "Удалить все резервные копии?"
+			if [ -f "$SCRIPT_CONFIG_FILE" ];then
+				showText "\tУдалить настройки $SCRIPT_NAME?"
 				echo ""
-				echo -e "\t1: Да"
-				echo -e "\t0: Нет (по умолчанию)"
-				echo ""
-				read -r -p "Ваш выбор:"
-				echo ""
-				if [ "$REPLY" = "1" ];then
-					rm -rf $BACKUP
-					messageBpx "Резервные копии - удалены."
+				option "1" "Да" "" "d"
+				result "Нет" ""
+				if ! [ "$REPLY" = "0" ];then
+					rm -rf "$SCRIPT_CONFIG_FILE"
 				fi
 			fi
 			headLine
-			copyRight "NK" "2024"
-			rm -rf /opt/bin/nk
+			copyRight
 			clear
+			rm -rf "$0"
 			exit
 		fi
+		packageMenu
+	fi
+	}
+
+function stopPackage
+	{
+	echo "Остановка $PACKAGE_NAME..."
+	echo ""
+	LOG=$(/opt/etc/init.d/S51nfqws2 stop 2>&1)
+	if [ -z "`echo -e "$LOG" | grep "Stopping NFQWS2 service"`" ];then
+		echo -e "$LOG"
+		echo ""
+		pressAnyKey
 	fi
 	}
 
 function mainMenu
 	{
-	headLine "NK для NFQWS-Keenetic"
-	if [ -n "`opkg list-installed | grep "nfqws-keenetic"`" ];then
-		local STATE1=""
-	else
-		local STATE1="block"
-	fi
-	if [ -d "$PROFILE_PATH" ];then
-		if [ -n "$UPDATE" -a -z "$STATE1" ];then
-			messageBox "Доступно обновление до: $UPDATE"
-			echo ""
-			local STATE2=""
-			local STATE3="block"
-		elif [ -n "`ls "$PROFILE_PATH" | grep "\-old"`" -a -z "$STATE1" -o -n "`ls "$PROFILE_PATH" | grep "\-opkg"`" -a -z "$STATE1" ];	then
-			messageBox "Можно оптимизировать профиль."
-			echo ""
-			local STATE2="block"
-			local STATE3=""
-		elif [ -n "`cat "$PROFILE_PATH/nfqws.conf" | grep "#OLD#\|#NEW#"`" -a -z "$STATE1" ];	then
-			local STATE2="block"
-			local STATE3=""
+	if [ -n "`statusOPKG "$PACKAGE_NAME"`" ];then
+		local STATUS0="`date +"%H:%M:%S"`"
+		local STATUS1=""
+		statusPackage
+		local STATUS2="$REPLY"
+		if [ -z "$REPLY" ];then
+			local VARIABLE="Перезапуск"
 		else
-			local STATE2="block"
-			local STATE3="block"
+			local VARIABLE="Запуск"
 		fi
 	else
-		local STATE2="block"
-		local STATE3="block"
+		local STATUS0=""
+		local STATUS1="block"
+		local VARIABLE="Запуск"
+		local STATUS2="block"
 	fi
-	echo "Главное меню:"
-	echo ""
-	showOption "\t1: Запуск/перезапуск службы" "$STATE1"
-	showOption "\t2: Остановка службы" "$STATE1"
-	showOption "\t3: Состояние службы" "$STATE1"
-	showOption "\t4: Обновление" "$STATE2"
-	showOption "\t5: Редактор конфигурации" "$STATE1"
-	showOption "\t6: Оптимизация профиля" "$STATE3"
-	showOption "\t7: Редактор списков" "$STATE1"
-	echo -e "\t8: Управление пакетом"
-	echo -e "\t9: Дополнительно"
-	echo -e "\t0: Выход (по умолчанию)"
-	echo ""
-	read -r -p "Ваш выбор:"
-	echo ""
+	headLine "$SCRIPT_NAME для $PACKAGE_NAME" "$STATUS0" "" "$STATUS0" "$REPLY" ":служба запущена" "$DRK_CLR$OK_BG" ":служба остановлена" "$DRK_CLR$ERR_BG"
+	if [ -n "$STATUS0" ];then
+		showRighted "$STATUS0" "$ACC_CLR"
+	fi
+	local STATE0="`checkForUpdate "$PACKAGE_NAME nfqws-keenetic-web"`"
+	if [ -n "$STATE0" ];then
+		echo "$STATE0"
+		echo ""
+	fi
+	option "1" "$VARIABLE службы" "$STATUS1"
+	option "2" "Остановка службы" "$STATUS2"
+	option "3" "Обновление статуса..." "$STATUS1"
+	option "4" "Настройки" "$STATUS1"
+	option "5" "Списки" "$STATUS1"
+	option "9" "Управление пакетами"
+	result "Выход" "d"
 	if [ "$REPLY" = "1" ];then
-		if [ -z "$STATE1" ];then
-			restartNFQWS
+		if [ -z "$STATUS1" ];then
+			restartPackage
 		else
-			messageBox "Пакет NFQWS-keenetic - не установлен." "\033[91m"
+			showMessage "Пакет $PACKAGE_NAME не установлен." "e"
 			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
+			pressAnyKey
 		fi
 		mainMenu
 		exit
 	elif [ "$REPLY" = "2" ];then
-		if [ -z "$STATE1" ];then
-			stopNFQWS
+		if [ -z "$STATUS2" ];then
+			stopPackage
 		else
-			messageBox "Пакет NFQWS-keenetic - не установлен." "\033[91m"
-			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
+			if [ -z "$STATUS1" ];then
+				showMessage "Сервер уже остановлен." "e"
+				echo ""
+				pressAnyKey
+			else
+				showMessage "Пакет $PACKAGE_NAME не установлен." "e"
+				echo ""
+				pressAnyKey
+			fi
 		fi
 		mainMenu
 		exit
 	elif [ "$REPLY" = "3" ];then
-		if [ -z "$STATE1" ];then
-			statusNFQWS
-		else
-			messageBox "Пакет NFQWS-keenetic - не установлен." "\033[91m"
+		if [ -n "$STATUS1" ];then
+			showMessage "Пакет $PACKAGE_NAME не установлен." "e"
 			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
+			pressAnyKey
 		fi
 		mainMenu
 		exit
 	elif [ "$REPLY" = "4" ];then
-		if [ -z "$STATE2" ];then
-			updateNFQWS
+		if [ -z "$STATUS1" ];then
+			settings
 		else
-			messageBox "Нет доступных обновлений." "\033[91m"
+			showMessage "Пакет $PACKAGE_NAME не установлен." "e"
 			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
+			pressAnyKey
 		fi
 		mainMenu
 		exit
 	elif [ "$REPLY" = "5" ];then
-		if [ -z "$STATE1" ];then
-			configEditor
+		if [ -z "$STATUS1" ];then
+			LIST_CHANGES="0"
+			listsMenu
 		else
-			messageBox "Пакет NFQWS-keenetic - не установлен." "\033[91m"
+			showMessage "Пакет $PACKAGE_NAME не установлен." "e"
 			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
+			pressAnyKey
 		fi
-		mainMenu
-		exit
-	elif [ "$REPLY" = "6" ];then
-		if [ -z "$STATE3" ];then
-			profileOptimize
-		else
-			messageBox "Оптимизация - не требуется." "\033[91m"
-			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-		fi
-		mainMenu
-		exit
-	elif [ "$REPLY" = "7" ];then
-		if [ -z "$STATE1" ];then
-			listsEditor
-		else
-			messageBox "Пакет NFQWS-keenetic - не установлен." "\033[91m"
-			echo ""
-			read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
-		fi
-		mainMenu
-		exit
-	elif [ "$REPLY" = "8" ];then
-		installMenu
 		mainMenu
 		exit
 	elif [ "$REPLY" = "9" ];then
-		extraMenu
+		packageMenu
 		mainMenu
 		exit
 	else
+		if [ -z "$STATE0" ];then
+			local STATE0="`checkForUpdate "$PACKAGE_NAME nfqws-keenetic-web"`"
+			if [ -n "$STATE0" ];then
+				echo "$STATE0"
+				echo ""
+				option "1" "Обновить"
+				result "Выход" "d"
+				if [ "$REPLY" = "1" ];then
+					packageMenu
+					mainMenu
+				fi
+			fi
+		fi
 		headLine
-		copyRight "NK" "2024"
+		copyRight
 		clear
 		exit
-	fi
-	}
-
-function firstStart	# текст
-	{
-	headLine "Привет!"
-	showText "\tПохоже это $1 NK... Существует мнение что: в хорошей программе - должна быть одна единственная кнопка: \"сделать хорошо\". Руководствуясь им, вам предоставляется возможность настроить почти всё - нажатием одной клавиши (Ввод). А получить доступ к более гибким настройкам, можно в \"Главном меню\"..."
-	echo ""
-	echo -e "     Ввод: Сделать хорошо"
-	echo -e "\t0: В главное меню"
-	echo ""
-	read -r -p "Ваш выбор:"
-	echo ""
-	if [ -z "$REPLY" ];then
-		sysConfigGet
-		if [ -z "`opkg list-installed | grep "nfqws-keenetic"`" ];then
-			if [ "$ARCH" = "aarch64" ];then
-				installAarch64 "skup"
-			elif [ "$ARCH" = "Mipsel" ];then
-				installMipsel "skup"
-			elif [ "$ARCH" = "Mips" ];then
-				installMips "skup"
-			else
-				installUniversal "skup"
-			fi
-		fi
-		if [ -f "/opt/etc/init.d/S51nfqws" ];then
-			if [ "`/opt/etc/init.d/S51nfqws status`" = "Service NFQWS is running" ];then
-				showCentered "Установка - завершена, NFQWS - уже работает." "\033[92m"
-				echo ""
-				showText "\tВ главном меню NK, вы сможете: запускать и останавливать службу NFQWS, изменять настройки, редактировать списки доменных имён, создавать и восстанавливать резервные копии пользовательского профиля а также выполнять ряд других (полезных) действий (в режиме диалога)..."
-				local NDMS_VERSION="`ndmc -c show version | grep "release" | awk -F": " '{print $2}'`"
-				if [ "`echo $NDMS_VERSION | awk -F"." '{print $1}'`" -lt "3" ];then	
-					echo ""
-					showText "\tВ KeeneticOS 2.x - недоступны компоненты DoT и DoH, вы можете настроить альтернативу в разделе \"Дополнительно/Донастройка ZyXel Keenetic\"..."
-				fi
-			else
-				messageBox "Что-то пошло не так." "\033[91m"
-				echo ""
-				showText "\tВ главном меню, вы можете попробовать запустить службу NFQWS вручную, или выполнить переустановку пакета..."
-			fi
-		else
-			messageBox "Что-то пошло не так." "\033[91m"
-			echo ""
-			showText "\tВ главном меню, вы можете попробовать запустить службу NFQWS вручную, или выполнить переустановку пакета..."
-		fi
-		echo ""
-		read -n 1 -r -p "(Чтобы продолжить - нажмите любую клавишу...)" keypress
 	fi
 	}
 
 echo;while [ -n "$1" ];do
 case "$1" in
 
--a)	sysConfigGet
-	messageBox "Текущая архитектура: $ARCH"
+-s)	stopPackage
+	logger "$SCRIPT_NAME: остановка $PACKAGE_NAME"
 	exit
 	;;
 
--A)	MODE="-A"
-	installAarch64
+-S)	restartPackage
+	logger "$SCRIPT_NAME: запуск/перезапуск $PACKAGE_NAME"
 	exit
 	;;
 
--b)	MODE="-b"
-	backUp
-	exit
-	;;
-
--B)	MODE="-B"
-	buttonMenu
-	exit
-	;;
-
--c)	MODE="-c"
-	configEditor
-	exit
-	;;
-
--f)	MODE="-f"
-	firstStart "имитация первого запуска"
-	MODE=""
-	mainMenu
-	exit
-	;;
-
--i)	MODE="-i"
-	infoNFQWS
-	exit
-	;;
-
--I)	MODE="-I"
-	installUniversal
-	exit
-	;;
-
--l)	MODE="-l"
-	listsEditor
-	exit
-	;;
-
--m)	MODE="-m"
-	installMips
-	exit
-	;;
-
--M)	MODE="-M"
-	installMipsel
-	exit
-	;;
-
--o)	MODE="-o"
-	profileOptimize
-	exit
-	;;
-
--p)	MODE="-p"
-	mainMenu
-	exit
-	;;
-
--P)	MODE="-P"
-	policySetup
-	exit
-	;;
-
--r)	MODE="-r"
-	restartNFQWS
-	exit
-	;;
-
--R)	MODE="-R"
-	uninstallNFQWS
-	exit
-	;;
-
--s)	MODE="-s"
-	stopNFQWS
-	exit
-	;;
-
--S)	MODE="-S"
-	startNFQWS
-	exit
-	;;
-
--u)	SCRIPT_NAME="NK"
-	headLine "Обновление $SCRIPT_NAME"
-	FILE_NAME="`echo "$SCRIPT_NAME" | tr '[:upper:]' '[:lower:]'`"
-	if [ -f "/opt/_update/$FILE_NAME.sh" ];then
+-u)	headLine "Обновление $SCRIPT_NAME"
+	FILE_NAME="`echo "$SCRIPT_NAME" | tr '[:upper:]' '[:lower:]'`.sh"
+	UPDATE_FILE="/opt/_update/$FILE_NAME"
+	if [ -f "$UPDATE_FILE" ];then
 		echo "Локальное обновление..."
-		echo ""
-		mv /opt/_update/$FILE_NAME.sh /opt/bin/$FILE_NAME
-		rm -rf /opt/_update/
 	else
-		echo "Обновление..."
-		echo ""
-		echo "`opkg update`" > /dev/null
-		echo "`opkg install ca-certificates wget-ssl`" > /dev/null
-		echo "`opkg remove wget-nossl`" > /dev/null
-		wget -q -O /tmp/$FILE_NAME.sh https://raw.githubusercontent.com/rino-soft-lab/nk/refs/heads/main/nk.sh
-		if [ ! -n "`cat "/tmp/$FILE_NAME.sh" | grep 'function copyRight'`" ];then
-			messageBox "Не удалось загрузить файл." "\033[91m"
-			exit
-		else
-			mv /tmp/$FILE_NAME.sh /opt/bin/$FILE_NAME
-		fi
-	fi
-	chmod +x /opt/bin/$FILE_NAME
-	messageBox "$SCRIPT_NAME обновлён до версии: `cat "/opt/bin/$FILE_NAME" | grep '^VERSION=' | awk -F'"' '{print $2}'` build `cat "/opt/bin/$FILE_NAME" | grep '^BUILD=' | awk -F'"' '{print $2}'`"
-	exit
-	;;
-
--U)	MODE="-U"
-	updateNFQWS
-	exit
-	;;
-
--v)	echo "$0 $VERSION build $BUILD"
-	exit
-	;;
-
--W)	MODE="-W"
-	installWeb
-	exit
-	;;
-
--z)	MODE="-z"
-	zyxelSetup
-	exit
-	;;
-
-*) 	messageBox "Введён некорректный ключ." "\033[91m" "1"
-	if [ "$COLUNS" = "80" ];then
-		SEPARATE="\t"
-	else
-		SEPARATE="\n\t"
+		echo "Проверка наличия обновлений..."
+		UPDATE_FILE="/tmp/$FILE_NAME"
+		installOPKG "ca-certificates" "skip"
+		installOPKG "wget-ssl" "skip"
+		removeOPKG "wget-nossl" "skip"
+		wget -q -O "$UPDATE_FILE" "$SCRIPT_UPDATE_URL"
 	fi
 	echo ""
-	echo -e "Доступные ключи:
-
-	-a: Архитектура процессора$SEPARATE-A: Установка пакета aarch64
-	-b: Резервное копирование$SEPARATE-B: Настройка кнопок
-	-с: Редактор конфигурации$SEPARATE-f: Имитация первого запуска
-	-i: Информация о пакете $SEPARATE-I: Установка универсального пакета
-	-l: Редактор списков	$SEPARATE-m: Установка пакета mips
-	-M: Установка пакета mipsel$SEPARATE-o: Оптимизация профиля
-	-p: Без проверки обновлений$SEPARATE-P: Политика доступа
-	-r: Перезапуск службы	$SEPARATE-R: Удаление пакета
-	-s: Остановка службы	$SEPARATE-S: Запуск службы
-	-u: Обновление NK	$SEPARATE-U: Обновление пакета
-	-v: Текущая версия NK	$SEPARATE-W: Установка Web-интерфейса
-	-z: Донастройка ZyXel Keenetic"
+	if [ -f "$UPDATE_FILE" ];then
+		UPDATE_VERSION="`cat "$UPDATE_FILE" | grep "^SCRIPT_VERSION=\|^VERSION=" | awk -F'"' '{print $2}'`"
+		if [ -n "$UPDATE_VERSION" ];then
+			if [ "$SCRIPT_VERSION" = "$UPDATE_VERSION" ];then
+				showText "\tУстановлена актуальная версия $SCRIPT_NAME."
+			else
+				halfColored "Текущая версия: " "$SCRIPT_VERSION"
+				halfColored "Версия обновления: " "$UPDATE_VERSION"
+				echo ""
+				showText "\tХотите выполнить обновление?"
+				echo ""
+				option "1" "Да"
+				result "нет" "d"
+				if [ "$REPLY" = "1" ];then
+					mv "$UPDATE_FILE" "$0"
+					chmod +x "$0"
+					showMessage "Обновление завершено." "o"
+				fi
+			fi
+			
+		else
+			showMessage "Файл обновления повреждён." "e"
+		fi
+		if [ -f "$UPDATE_FILE" ];then
+			rm -rf "$UPDATE_FILE"
+		fi
+		if [ -n "`echo "$UPDATE_FILE" | grep "^/opt/_update/"`" ];then
+			rm -rf "`dirname "$UPDATE_FILE"`"
+		fi
+	else
+		showMessage "Не удалось загрузить файл обновления." "e"
+	fi
 	exit
 	;;
-	
+
+-U)	getUpdateVersion "$PACKAGE_NAME nfqws-keenetic-web"
+	exit
+	;;
+
+-v)	echo "$SCRIPT_VERSION"
+	exit
+	;;
+
+*) 	echo "$SCRIPT_NAME: неверный ключ. Доступные ключи:"
+	echo ""
+	halfColored " -s: " "Остановка PACKAGE_NAME"
+	halfColored " -S: " "Запуск/перезапуск $PACKAGE_NAME"
+	halfColored " -u: " "Обновление $SCRIPT_NAME"
+	halfColored " -U: " "Доступные версии пакетов (служебный)" "$ERR_CLR"
+	halfColored " -v: " "Версия $SCRIPT_NAME"
+	exit
+	;;
+
 esac;shift;done
-if [ -z "`opkg list-installed | grep "nfqws-keenetic"`" -a ! -d "$PROFILE_PATH" ];then
-	firstStart "первый запуск"
+
+TITLE="`getSetting "friendly_name=" "#" "v"`"
+if ! [ -n "$TITLE" -a -z "`getSetting "friendly_name=" "#" "b"`" -a -n "`statusOPKG "$PACKAGE_NAME"`" ];then
+	TITLE="$PACKAGE_NAME"
 fi
-headLine "NK"
-echo -e "\tПодождите..."
-UPDATE=`checkForUpdate`
+loadConfig "" "skip"
 mainMenu
